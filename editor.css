@@ -1,0 +1,249 @@
+
+:root{
+/* === ui colors (softer) === */
+--c1: rgb(255, 0, 0);           /* red */
+--c2: rgb(0, 255, 0);           /* green */
+--c3: rgb(0, 0, 255);           /* blue */
+--c4: rgb(255, 215, 0);         /* gold / yellow */
+--c5: rgb(255, 255, 255);       /* white */
+--c6: rgb(255, 140, 0);         /* orange (snowman nose!) */
+--c7: rgb(173, 216, 230);       /* light blue */
+
+/* === led / svg colors === */
+--color0: rgb(255, 0, 0);       /* red */
+--color1: rgb(0, 255, 0);       /* green */
+--color2: rgb(0, 0, 255);       /* blue */
+--color3: rgb(255, 215, 0);     /* gold / yellow */
+--color4: rgb(255, 255, 255);   /* white */
+--color5: rgb(255, 140, 0);     /* orange (snowman nose!) */
+--color6: rgb(173, 216, 230);   /* light blue */
+
+--background: #333;
+--circle-area: #333;
+--mouseover: darkcyan;
+--mouseover-byte: darkslategray;
+
+--key-bg: #2c2c2c;
+--key-border: rgba(255,255,255,0.18);
+--key-top: rgba(255,255,255,0.14);
+--key-shadow: rgba(0,0,0,0.6);
+--key-text: rgba(255,255,255,0.92);
+
+--field-background: ghostwhite;
+}
+
+body, html { margin: 0; padding: 0; width: 100%; height: 100% }
+body {
+    background-color: var(--background);
+    color: silver;
+    font-size: 14px;
+    font-family: Consolas, "DejaVu Sans Mono", Menlo, Monaco, "Liberation Mono", "Courier New", monospace;
+}
+
+.content { display: flex; flex-direction: column; height: 100%; position: relative }
+#svg { width:100%; height:100% }
+circle.area { fill: var(--circle-area); stroke: none; pointer-events: none; }
+svg text { pointer-events: none; }
+
+g.pixel { fill: #222; stroke:none; pointer-events: none; }
+path.pixel-hit { pointer-events: all; fill: #000; opacity: 0 }
+path.pixel-vis { pointer-events: none; }
+
+g.pixel.painted.color1 path.pixel-vis { fill: var(--color1); }
+g.pixel.painted.color2 path.pixel-vis { fill: var(--color2); }
+g.pixel.painted.color3 path.pixel-vis { fill: var(--color3); }
+g.pixel.painted.color4 path.pixel-vis { fill: var(--color4); }
+g.pixel.painted.color5 path.pixel-vis { fill: var(--color5); }
+g.pixel.painted.color6 path.pixel-vis { fill: var(--color6); }
+g.pixel.painted.color7 path.pixel-vis { fill: var(--color7); }
+g.pixel.painted.color8 path.pixel-vis { fill: var(--color8); }
+g.pixel.painted.color9 path.pixel-vis { fill: var(--color9); }
+g.pixel.painted.color0 path.pixel-vis { fill: var(--color0); }
+
+text.angle { font-size: 36px; fill: black }
+
+/* toolbar */
+.toolbar {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 14px;
+    align-items: center;
+    justify-content: center;
+    padding: 10px 14px;
+    background: #222;
+    border-top: 4px solid black;
+    border-bottom: 6px solid black;
+}
+
+/* group like: [a] [d] rotate */
+.hint {
+    display: inline-flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+    color: rgba(255,255,255,0.75);
+    font-size: 1.2rem;
+}
+
+/* keycaps */
+.kbd,
+kbd.key {
+
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+
+    min-width: 2.15em;
+    height: 2.05em;
+    padding: 0 0.55em;
+
+    border-radius: 10px;
+    border: 1px solid var(--key-border);
+
+    background: linear-gradient(180deg, var(--key-top), transparent 45%), var(--key-bg);
+
+    box-shadow:
+    0 2px 0 rgba(0,0,0,0.45),
+    0 8px 14px -10px var(--key-shadow);
+
+    color: var(--key-text);
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                "Liberation Mono", "DejaVu Sans Mono", monospace;
+    font-size: 1.0rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+    line-height: 1;
+
+    user-select: none;
+}
+
+/* size variants */
+.kbd.small, kbd.key.small {
+    height: 1.75em;
+    min-width: 1.9em;
+    border-radius: 9px;
+    font-size: 0.85rem;
+}
+
+.kbd.wide, kbd.key.wide {
+    min-width: 3.1em;
+}
+
+/* interactive / pressed */
+.kbd.pressable,
+kbd.key.pressable {
+    cursor: pointer;
+    transition: transform 60ms ease, box-shadow 60ms ease, filter 120ms ease;
+}
+
+/* color accent bar */
+.kbd::after {
+    content: "";
+    position: absolute;
+    left: 6px;
+    right: 6px;
+    bottom: 4px;
+    height: 3px;
+    border-radius: 2px;
+    background: transparent;
+}
+
+/* enable positioning */
+.kbd, kbd.key { position: relative; }
+
+.kbd.color1::after { background: var(--color1); }
+.kbd.color2::after { background: var(--color2); }
+.kbd.color3::after { background: var(--color3); }
+.kbd.color4::after { background: var(--color4); }
+.kbd.color5::after { background: var(--color5); }
+.kbd.color6::after { background: var(--color6); }
+.kbd.color7::after { background: var(--color7); }
+.kbd.color8::after { background: var(--color8); }
+.kbd.color9::after { background: var(--color9); }
+.kbd.color0::after { background: var(--color0); }
+
+/* selected color */
+.kbd.selected { box-shadow: 0 2px 0 rgba(0,0,0,0.45), 0 0 0 2px currentColor; }
+
+.overlay {
+    position: absolute;
+    top: 12px;
+    z-index: 50;
+
+    max-width: min(42ch, 40vw);
+    padding: 8px 10px;
+
+    background: rgba(0,0,0,0.65);
+    border: 1px solid rgba(255,255,255,0.10);
+    border-radius: 10px;
+
+    color: rgba(255,255,255,0.92);
+    font-size: 1.4rem;
+    line-height: 1.25;
+
+    pointer-events: none; /* so it won’t block drawing */
+    backdrop-filter: blur(6px);
+}
+.overlay-left  { left: 12px; }
+.overlay-right { right: 12px; text-align: left; }
+
+.overlay { transition: opacity 150ms ease; opacity: 0; }
+.overlay-right { opacity: 1 }
+
+.mouseover-byte { stroke-width: 3px; stroke: var(--mouseover-byte); pointer-events: none; }
+.mouseover { stroke-width: 6px; stroke: var(--mouseover); pointer-events: none; }
+
+#output {
+    /* display: none; */
+    pointer-events: auto;
+    grid-column: 1 / span 4;
+    resize: vertical;
+    height: 100px;
+    background-color: #999;
+}
+
+.dark { color: #444 }
+
+button#copy, button#save, button#load, #image_index { pointer-events: auto }
+
+.overlay-right * { font-size: 1.2rem; }
+.overlay-right {
+    display: grid;
+    grid-template-columns: 3fr repeat(3, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    grid-column-gap: 10px;
+    grid-row-gap: 10px;
+}
+
+#copy_all { grid-column: 2 / span 3; pointer-events: auto }
+button { cursor: pointer }
+#new { pointer-events: auto }
+.byte-row { display: flex; justify-content: space-between; }
+
+button, select {
+    background-color: var(--field-background);
+    border-radius: 8px;
+}
+
+/*
+Source - https://stackoverflow.com/a
+Posted by Blowsie, modified by community. See post 'Timeline' for change history
+Retrieved 2025-12-21, License - CC BY-SA 4.0
+*/
+
+.noselect {
+  -webkit-touch-callout: none; /* iOS Safari */
+    -webkit-user-select: none; /* Safari */
+     -khtml-user-select: none; /* Konqueror HTML */
+       -moz-user-select: none; /* Old versions of Firefox */
+        -ms-user-select: none; /* Internet Explorer/Edge */
+            user-select: none; /* Non-prefixed version, currently
+                                  supported by Chrome, Edge, Opera and Firefox */
+}
+
+.copied {
+    content: "";
+    background-color: #333;
+    transition: background-color 120ms ease, color 120ms ease;
+    cursor: default;
+}

@@ -1,0 +1,69 @@
+<!doctype html>
+<html>
+<head>
+    <title>textsabre editor</title>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />        
+    <link rel="stylesheet" type="text/css" href="editor.css" />
+    <script src="snap.svg-min.js"></script>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+</head>
+
+<body>
+    <div class="content">
+        <div class="overlay overlay-left" id="tip_left"></div>
+        <div class="overlay overlay-right" id="tip_right">
+            <select id="image_index">
+                <option value="0" selected>image_0</option>
+                <option value="1">image_1</option>
+                <option value="2">image_2</option>
+                <option value="3">image_3</option>
+                <option value="4">image_4</option>
+                <option value="5">image_5</option>
+                <option value="6">image_6</option>
+                <option value="7">image_7</option>
+            </select>
+            <button id="load">load</button>
+            <button id="save">save</button>
+            <button id="new">new</button>
+            <button id="copy">&#10697; copy</button>
+            <button id="copy_all">&#10697; copy all</button>
+            <textarea readonly id="output"></textarea>
+        </div>
+        <svg id="svg" class="noselect"></svg>
+        <div class="toolbar">
+            <div class="hint hint-rotate">
+                <span>rotate</span>
+                <kbd class="key kbd pressable active key-a">A</kbd>
+                <kbd class="key kbd pressable active key-d">D</kbd>
+            </div>
+
+            <div class="hint hint-color">
+                <span>color</span>
+                <kbd class="key kbd pressable active color0">1</kbd>
+                <kbd class="key kbd pressable active color1">2</kbd>
+                <kbd class="key kbd pressable active color2">3</kbd>
+                <kbd class="key kbd pressable active color3">4</kbd>
+                <kbd class="key kbd pressable active color4">5</kbd>
+                <kbd class="key kbd pressable active color5">6</kbd>
+                <kbd class="key kbd pressable active color6">7</kbd>
+                <kbd class="key kbd pressable active color7" style="display:none">8</kbd>
+                <kbd class="key kbd pressable active color8" style="display:none">9</kbd>
+                <kbd class="key kbd pressable active color9" style="display:none">0</kbd>
+            </div>
+
+            <div class="hint hint-actions">
+                <span>zoom</span>
+                <kbd class="key kbd pressable active key-z selected">Z</kbd>
+            </div>
+        </div>
+    </div>
+
+<script src="editor.js"></script>
+
+</body>
+</html>
