@@ -298,24 +298,21 @@ document.addEventListener("DOMContentLoaded", (e) => {
         applyZoomState();
     }
 
-    document.querySelector("#image_index").addEventListener("change", (e) => {
-        // update_output_code();
-        // actually, no, don't update this
+    // standardized visual effect acknowledging a click
+    document.querySelectorAll("button").forEach( (button) => {
+        button.addEventListener("click", (e) => {
+            button.classList.add("clicked");
+            setTimeout( () => {
+                button.classList.remove("clicked");
+            }, 1000);
+        });
     });
 
     document.querySelector("button#copy").addEventListener("click", (e) => {
-        document.querySelector("#copy").classList.add("copied");
-        setTimeout( () => {
-            document.querySelector("#copy").classList.remove("copied");
-        }, 1000);
         copy_output(document.getElementById("output").value);
     });
 
     document.querySelector("button#copy_all").addEventListener("click", (e) => {
-        document.querySelector("#copy_all").classList.add("copied");
-        setTimeout( () => {
-            document.querySelector("#copy_all").classList.remove("copied");
-        }, 1000);
         copy_output(get_all_images_arduino_code());
     });
 

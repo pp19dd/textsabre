@@ -241,9 +241,9 @@ Retrieved 2025-12-21, License - CC BY-SA 4.0
                                   supported by Chrome, Edge, Opera and Firefox */
 }
 
-.copied {
-    content: "";
+.clicked {
     background-color: #333;
+    color: silver;
     transition: background-color 120ms ease, color 120ms ease;
     cursor: default;
 }
