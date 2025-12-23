@@ -280,6 +280,11 @@ document.addEventListener("DOMContentLoaded", (e) => {
     button_click_events();
     update_output_code();
 
+    if( localStorage.getItem("sabre-zoom") !== null ) {
+        zoom_state = JSON.parse(localStorage.getItem("sabre-zoom"));
+        applyZoomState();
+    }
+
     document.querySelector("#image_index").addEventListener("change", (e) => {
         // update_output_code();
         // actually, no, don't update this
@@ -835,10 +840,7 @@ function do_rotation() {
 
 requestAnimationFrame(do_rotation);
 
-function toggleZoomKey() {
-    zoom_state++;
-    if( zoom_state > 1 ) zoom_state = 0;
-
+function applyZoomState() {
     switch( zoom_state ) {
         case 0:
             paper.attr({ viewBox: "-1500 -1500 3000 1500"});
@@ -850,6 +852,14 @@ function toggleZoomKey() {
             document.querySelector(".hint-actions .key-z").classList.remove("selected");
         break;
     }
+}
+
+function toggleZoomKey() {
+    zoom_state++;
+    if( zoom_state > 1 ) zoom_state = 0;
+    applyZoomState();
+
+    localStorage.setItem("sabre-zoom", JSON.stringify(zoom_state));
 }
 
 function setRotationKeyLeft(value) {
