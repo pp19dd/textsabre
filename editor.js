@@ -279,6 +279,7 @@ function update_output_code() {
 // let tracked = new Array(led_columns * led_bytes);
 
 let rotation = 0;
+let prev_rotation = 0;
 let is_left = false;
 let is_right = false;
 let current_color = 0;
@@ -473,13 +474,21 @@ function drawPixel(paper, options) {
         const p3 = polar(rOutClamped, thetaCenter + halfWidth);
         const p4 = polar(rOutClamped, thetaCenter - halfWidth);
 
+        // return [
+        // "M", p1.x, p1.y,
+        // "A", rInner, rInner, 0, 0, 1, p2.x, p2.y,
+        // "L", p3.x, p3.y,
+        // "A", rOutClamped, rOutClamped, 0, 0, 0, p4.x, p4.y,
+        // "Z"
+        // ].join(" ");
+
         return [
-        "M", p1.x, p1.y,
-        "A", rInner, rInner, 0, 0, 1, p2.x, p2.y,
-        "L", p3.x, p3.y,
-        "A", rOutClamped, rOutClamped, 0, 0, 0, p4.x, p4.y,
-        "Z"
-        ].join(" ");
+            "M", p1.x, p1.y,
+            "L", p2.x, p2.y,
+            "L", p3.x, p3.y,
+            "L", p4.x, p4.y,
+            "Z"
+        ].join(" ");        
     }
 
     // --- cell geometry (full clickable region) ---
@@ -844,8 +853,12 @@ document.addEventListener("keyup", function(k) {
 function do_rotation() {
     if( is_left ) rotation -= 3;
     if( is_right ) rotation += 3;
-    main.transform("r" + rotation + ",0,0");
+
+    if( prev_rotation !== rotation ) {
+        main.transform("r" + rotation + ",0,0");
+    }
     requestAnimationFrame(do_rotation);
+    prev_rotation = rotation;
 }
 
 requestAnimationFrame(do_rotation);
