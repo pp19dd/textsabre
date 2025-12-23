@@ -100,7 +100,7 @@ function load_output() {
     pixels = JSON.parse(localStorage.getItem(key));
     load_pixel_array( pixels );
     rotation = 0;
-    main.transform("r" + rotation);
+    main.transform("r" + rotation + ",0,0");
 
     update_output_code();
 }
@@ -796,7 +796,7 @@ function copy_output(text) {
 // #region ACTIONS
 function action_new() {
     rotation = 0;
-    main.transform("r" + rotation);
+    main.transform("r" + rotation + ",0,0");
     pixels = new Array(led_rows * led_columns).fill(-1);
     load_pixel_array(pixels);
     update_output_code();
@@ -844,7 +844,7 @@ document.addEventListener("keyup", function(k) {
 function do_rotation() {
     if( is_left ) rotation -= 3;
     if( is_right ) rotation += 3;
-    main.transform("r" + rotation);
+    main.transform("r" + rotation + ",0,0");
     requestAnimationFrame(do_rotation);
 }
 
