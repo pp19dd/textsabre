@@ -1,0 +1,325 @@
+<!doctype html>
+<html>
+<head>
+    <title>textsabre import bdf font</title>
+    <meta charset="utf-8" />
+    <meta name="robots" content="noindex" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />        
+    <link rel="stylesheet" type="text/css" href="../editor.css" />
+    <script src="../snap.svg-min.js"></script>
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
+    <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
+    <link rel="manifest" href="/site.webmanifest" />
+    <style>
+        .content { padding-left: 1rem; padding-right: 1rem; padding-bottom:400px }
+        textarea { min-height: 6rem; resize: none; width:100% }
+        #parse { padding:0.33rem; }
+        
+        .input-section {
+            display: grid;
+            grid-template-columns: 5fr 5fr 5fr;
+            grid-template-rows: 1fr;
+            grid-column-gap: 20px;
+            grid-row-gap: 10px;
+        }
+
+
+        .characters {
+            display: flex;
+            flex-wrap: wrap;
+        }
+
+        .character { background-color: black; padding:0.25rem; margin: 0.25rem; }
+        .character-top { display: flex; justify-content: space-between;  }
+        .character-bottom { }
+
+        svg.character-preview { pointer-events: none; }
+        .pixel, .not-pixel { fill: teal; stroke: black; stroke-width: 2px }
+        .not-pixel { fill: #111 }
+    </style>
+</head>
+
+<body>
+    <div class="content">
+        <h1 class="digital">TextSabre: import BDF font</h1>
+        
+        <div class="input-section">
+            
+            <h2>Input: paste BDF font</h2>
+            <h2>Output: save to myfont.js</h2>
+            <h2>Output: save to myfont.h</h2>
+            
+            <p>(Text format, See <a rel="noreferrer" href="https://en.wikipedia.org/wiki/Glyph_Bitmap_Distribution_Format" target="_blank">BDF spec</a>.)<br/>Example font: <a rel="noreferrer" target="_blank" href="https://github.com/fcambus/spleen/">Spleen</a>.</p>
+                
+            <p>Add this font to editor for drawing pixels as usual (for example, see font0 in editor.js).</p>
+            <p>Add to Arduino code for writing text programmatically.</p>
+
+            <textarea spellcheck="false" id="font_input"></textarea>
+            <textarea id="font_output1" readonly></textarea>
+            <textarea id="font_output2" readonly></textarea>
+
+            <button id="parse">Parse →</button>
+            <button id="copy1">Copy to Clipboard ↑</button>
+            <button id="copy2">Copy to Clipboard ↑</button>
+        </div>
+
+
+        <p>Reduced set (characters 32 - 126).  Don't forget to properly credit font authors and review licenses for usage limits.</p>
+
+        <h2>Preview:</h2>
+        <div class="characters"></div>
+
+    </div>
+
+<script>
+// bdf text-parsing routines written by gemini 3
+// structure and design: me, the guy with actual eyes
+class bdf_font {
+    constructor() {
+        this.characters = {};
+    }
+
+    parse_pixels(c) {
+        const { width, height } = c.bbox;
+        const ret = new Array(width * height).fill(0);
+
+        // BDF rows are padded to the nearest 8 bits (1 byte).
+        // Width 1-8 => 8 bits, Width 9-16 => 16 bits, etc.
+        const paddedWidth = Math.ceil(width / 8) * 8;
+
+        for (let y = 0; y < height; y++) {
+            const rowValue = c.bytes[y]; // The integer from your hex parse
+
+            for (let x = 0; x < width; x++) {
+                // We want to check bits from left-to-right.
+                // In a bitmask, the leftmost pixel is the highest bit.
+                // Example: in 8-bit, x=0 is the 128 bit (2^7).
+                const bitShift = paddedWidth - 1 - x;
+                const isSet = (rowValue & (1 << bitShift)) !== 0;
+
+                if (isSet) {
+                    ret[y * width + x] = 1;
+                }
+            }
+        }
+        return ret;
+    }
+
+    parse_character(block) {
+        // 1. Extract Encoding (The character's ID/ASCII value)
+        const encodingMatch = block.match(/ENCODING\s+(-?\d+)/);
+        const encoding = encodingMatch ? parseInt(encodingMatch[1], 10) : null;
+
+        // 2. Extract BBX (Width, Height, X-offset, Y-offset)
+        const bbxMatch = block.match(/BBX\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)\s+(-?\d+)/);
+        const bbox = bbxMatch ? {
+            width:   parseInt(bbxMatch[1], 10),
+            height:  parseInt(bbxMatch[2], 10),
+            xOffset: parseInt(bbxMatch[3], 10),
+            yOffset: parseInt(bbxMatch[4], 10)
+        } : null;
+
+        // 3. Extract Bitmap Bytes
+        const bitmapMatch = block.match(/BITMAP\s+([\s\S]*?)(?=ENDCHAR)/);
+        let bytes = [];
+        if (bitmapMatch) {
+            const hexLines = bitmapMatch[1].trim().split(/\s+/);
+            // filter(Boolean) ignores empty lines if there's trailing whitespace
+            bytes = hexLines.filter(Boolean).map(hex => parseInt(hex, 16));
+        }
+
+        return {
+            num: encoding,
+            bbox: bbox,
+            bytes: bytes
+        };
+    }
+
+    load_font(code) {
+        const regex = /STARTCHAR[\s\S]*?ENDCHAR/g;
+        const blocks = [...code.matchAll(regex)].map(match => match[0]);
+
+        for( let i = 0; i < blocks.length; i++ ) {
+            const c = this.parse_character(blocks[i]);
+            if( c.num < 32 || c.num > 126 ) continue;
+            const p = this.parse_pixels(c);
+
+            this.characters[c.num] = {
+                meta: c, pixels: p
+            };
+        }
+    }
+
+    encode_pixels(character) {
+        let ret = "";
+        for( let i = 0; i < character.pixels.length; i++ ) {
+            ret += character.pixels[i].toString();
+        }
+        return( ret );
+    }
+
+    encode_font() {
+        let ret = {
+            pixels: {},
+            bbox: {
+                width: {}, height: {}, xOffset: {}, yOffset: {}
+            }
+        };
+        for( let k in this.characters ) {
+            // ret.bbox[k] = Object.values(this.characters[k].meta.bbox);
+            // ret.bbox[k] = (this.characters[k].meta.bbox);
+            ret.bbox[k] = [
+                this.characters[k].meta.bbox.width,
+                this.characters[k].meta.bbox.height,
+                this.characters[k].meta.bbox.xOffset,
+                this.characters[k].meta.bbox.yOffset
+            ];
+
+            ret.pixels[k] = this.encode_pixels(this.characters[k]);
+        }
+        return( JSON.stringify(ret) );
+        // return( JSON.stringify(this.characters["32"].pixels ) );
+    }
+
+    /*
+    todo: bring this functionality into the editor side
+    write(text, c, y, color) {
+        let cursorx = c;
+
+        for( let i = 0; i < text.length; i++ ) {
+            let charcode = text[i].charCodeAt(0);
+            if( typeof this.characters[charcode] === "undefined" ) charcode = 32;
+            
+            const w = this.characters[charcode].meta.bbox.width;
+            const h = this.characters[charcode].meta.bbox.height;
+
+            for( let py = 0; py < h; py++ ) {
+                for( let px = 0; px < w; px++ ) {
+                    const f_index = (w * py) + px;
+                    if( this.characters[charcode].pixels[f_index] !== 0 ) {
+                        const vp = (((c + px + cursorx) % led_columns) + led_columns) % led_columns;
+                        set_pixel( vp, y - py, color);
+                    }
+                }
+            }
+
+            cursorx += this.characters[charcode].meta.bbox.width;
+        }
+
+        return( cursorx );
+    }
+    */
+}
+
+function copy_output(text) {
+    // const text = document.getElementById("output").value;
+    
+    const textarea = document.createElement( "textarea" );
+    textarea.value = text;
+    
+    // prevent page jump on focus
+    textarea.style.position = "fixed";
+    textarea.style.top = '0';
+    textarea.style.left = '0';
+    textarea.style.opacity = '0';
+    
+    document.body.appendChild( textarea );
+    textarea.focus();
+    textarea.select();
+    
+    document.execCommand( 'copy' );
+    document.body.removeChild( textarea );
+}
+
+let font0 = null;
+
+document.addEventListener("DOMContentLoaded", (e) => {
+
+    document.querySelectorAll("button").forEach( (button) => {
+        button.addEventListener("click", (e) => {
+            button.classList.add("clicked");
+            setTimeout( () => {
+                button.classList.remove("clicked");
+            }, 1000);
+        });
+    });
+
+    document.querySelector("button#copy1").addEventListener("click", (button) => {
+        copy_output( document.querySelector("#font_output1").value );
+    });
+
+    document.querySelector("button#copy2").addEventListener("click", (button) => {
+        copy_output( document.querySelector("#font_output2").value );
+    });
+
+    document.querySelector("#parse").addEventListener("click", (button) => {
+        const pw = 10;
+        const ph = 10;
+
+        font0 = new bdf_font();
+        font0.load_font(document.querySelector("#font_input").value);
+
+        document.querySelector("#font_output1").value = 
+            "// myfont\n\n" +
+            "// bbox: width height xOffset yOffset\n\n" +
+            "const myfont001 = " +font0.encode_font() + ";\n";
+
+        document.querySelector("#font_output2").value = "// todo: write routine\n";
+
+        const characters = document.querySelector(".characters");
+        characters.innerHTML = "";
+        
+        function preview_character(div, character) {
+            const svg = div.querySelector("svg");
+            const paper = Snap(svg, character.meta.bbox.width, character.meta.bbox.height);
+            let x = 0;
+            let y = 0;
+            for( let i = 0; i < character.pixels.length; i++ ) {
+                if( character.pixels[i] !== 0 ) {
+                    paper.rect(x * pw, y * pw, pw, ph).addClass("pixel");
+                } else {
+                    paper.rect(x * pw, y * pw, pw, ph).addClass("not-pixel");
+                }
+
+                x++;
+                if( x >= character.meta.bbox.width ) {
+                    x = 0; y++;
+                }
+            }
+        }
+
+        function add_character(character) {
+            const div = document.createElement("div");
+            div.classList.add("character");
+
+            div.innerHTML = `
+                <div class="character-top dark">
+                    <div class="chr ">${character.meta.num}</div>
+                    <div class="txt">${String.fromCharCode(character.meta.num)}</div>
+                </div>
+                <div class="character-bottom">
+                    <svg 
+                        width="${character.meta.bbox.width * pw}" 
+                        height="${character.meta.bbox.height * ph}" 
+                        class="character-preview"
+                    ></svg>
+                </div>
+            `;
+            characters.append(div);
+            return( div );
+        }
+
+        for( k in font0.characters ) {
+            const div = add_character(font0.characters[k]);
+            preview_character(div, font0.characters[k]);
+        }
+    });
+
+    // document.querySelector("#parse").click();
+});
+
+</script>
+
+</body>
+</html>

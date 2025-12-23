@@ -24,11 +24,20 @@ const led_columns   = 144;
 
 // faster main lookup for getting / setting
 // byte-agnostic, goes by above definition
+// wrap-around built-in into get, set pixel
 let pixels = new Array(led_rows * led_columns).fill(-1);
 let pixel_nodes = new Array(led_rows * led_columns);
 
+function normalized_c(c) {
+	return( (c % led_columns + led_columns) % led_columns );
+}
+
+function normalized_y(y) {
+	return( (y % led_rows + led_rows) % led_rows );
+}
+
 function get_pixel(c, y, pixel_array) {
-    const index = (c * led_rows) + y;
+    const index = (normalized_c(c) * led_rows) + normalized_y(y);
     if( typeof pixel_array === "undefined" ) {
         return( pixels[index] );
     } else {
@@ -36,18 +45,22 @@ function get_pixel(c, y, pixel_array) {
     }
 }
 
-function set_pixel(c, y, v) {
-    const index = (c * led_rows) + y;
-    pixels[index] = v;
+function set_pixel(c, y, v, pixel_array) {
+    const index = (normalized_c(c) * led_rows) + normalized_y(y);
+    if( typeof pixel_array === "undefined" ) {
+        pixels[index] = v;
+    } else {
+        pixel_array[index] = v;
+    }
 }
 
 function get_pixel_node(c, y) {
-    const index = (c * led_rows) + y;
+    const index = (normalized_c(c) * led_rows) + normalized_y(y);
     return( pixel_nodes[index] );
 }
 
 function set_pixel_node(c, y, node) {
-    const index = (c * led_rows) + y;
+    const index = (normalized_c(c) * led_rows) + normalized_y(y);
     pixel_nodes[index] = node;
 }
 
@@ -280,24 +293,26 @@ document.addEventListener("DOMContentLoaded", (e) => {
     button_click_events();
     update_output_code();
 
-    document.querySelector("#image_index").addEventListener("change", (e) => {
-        // update_output_code();
-        // actually, no, don't update this
+    if( localStorage.getItem("sabre-zoom") !== null ) {
+        zoom_state = JSON.parse(localStorage.getItem("sabre-zoom"));
+        applyZoomState();
+    }
+
+    // standardized visual effect acknowledging a click
+    document.querySelectorAll("button").forEach( (button) => {
+        button.addEventListener("click", (e) => {
+            button.classList.add("clicked");
+            setTimeout( () => {
+                button.classList.remove("clicked");
+            }, 1000);
+        });
     });
 
     document.querySelector("button#copy").addEventListener("click", (e) => {
-        document.querySelector("#copy").classList.add("copied");
-        setTimeout( () => {
-            document.querySelector("#copy").classList.remove("copied");
-        }, 1000);
         copy_output(document.getElementById("output").value);
     });
 
     document.querySelector("button#copy_all").addEventListener("click", (e) => {
-        document.querySelector("#copy_all").classList.add("copied");
-        setTimeout( () => {
-            document.querySelector("#copy_all").classList.remove("copied");
-        }, 1000);
         copy_output(get_all_images_arduino_code());
     });
 
@@ -835,10 +850,7 @@ function do_rotation() {
 
 requestAnimationFrame(do_rotation);
 
-function toggleZoomKey() {
-    zoom_state++;
-    if( zoom_state > 1 ) zoom_state = 0;
-
+function applyZoomState() {
     switch( zoom_state ) {
         case 0:
             paper.attr({ viewBox: "-1500 -1500 3000 1500"});
@@ -850,6 +862,14 @@ function toggleZoomKey() {
             document.querySelector(".hint-actions .key-z").classList.remove("selected");
         break;
     }
+}
+
+function toggleZoomKey() {
+    zoom_state++;
+    if( zoom_state > 1 ) zoom_state = 0;
+    applyZoomState();
+
+    localStorage.setItem("sabre-zoom", JSON.stringify(zoom_state));
 }
 
 function setRotationKeyLeft(value) {
