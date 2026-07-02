@@ -296,3 +296,32 @@ a { color: silver }
     /* transform: rotate(-90deg) translateY(-1px); */
     display: inline-block;
 }
+
+.tool-preview-shape {
+    fill: none;
+    stroke: white;
+    stroke-width: 4px;
+    stroke-dasharray: 10 8;
+    opacity: 0.85;
+    pointer-events: none;
+}
+
+.pixel.tool-preview .pixel-vis {
+    opacity: 0.75;
+    stroke-width: 3px;
+    stroke: white;
+}
+
+.pixel.tool-preview-erase .pixel-vis {
+    opacity: 0.45;
+    stroke-width: 3px;
+    stroke: black;
+}
+
+.hint-tools .pressable.selected {
+    outline: 2px solid currentColor;
+    outline-offset: 2px;
+}
+.key-button {
+    color: crimson;
+}

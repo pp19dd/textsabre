@@ -196,7 +196,7 @@ function get_image_history(image_index) {
     return image_history[slot];
 }
 
-const image_slot_content_mark = " ●";
+const image_slot_content_mark = " ☼";
 
 function get_current_image_index() {
     return( active_image_index );
@@ -754,6 +754,14 @@ let is_right = false;
 let current_color = 0;
 let view_state = 0;
 
+// from raphaeljs days
+Snap.plugin(function(Snap, Element) {
+    Element.prototype.toFront = function() {
+        this.appendTo(this.parent());
+        return this;
+    };
+});
+
 var paper = Snap("#svg");
 paper.attr({ viewBox: "-1500 -1500 3000 1500"});
 paper.circle(0, 0, 1375).attr({ class: 'area' });
@@ -830,6 +838,59 @@ document.addEventListener("DOMContentLoaded", (e) => {
     document.querySelector("button#new").addEventListener("click", (e) => {
         action_new();
     });
+
+    paper.node.addEventListener("mousedown", function(e) {
+        if(
+            active_tool !== "line" &&
+            active_tool !== "circle" &&
+            active_tool !== "disc"
+        ) return;
+
+        // Normal pixel mousedown already handles this.
+        if( e.target && e.target.classList && e.target.classList.contains("pixel-hit") ) return;
+
+        const p = board_point_from_mouse_event(e);
+
+        if( !point_is_in_center_deadzone(p) ) return;
+
+        e.preventDefault();
+
+        begin_undoable_pixel_edit();
+
+        // I would make deadzone starts draw, not toggle erase.
+        // There is no pixel there to infer erase from.
+        is_painting = !e.shiftKey;
+        is_erasing = e.shiftKey;
+
+        tool_drag_start = { x: p.x, y: p.y };
+        tool_drag_last = { x: p.x, y: p.y };
+
+        show_tool_preview_shape(tool_drag_start, tool_drag_last);
+        show_tool_preview([]);
+    });
+
+    paper.node.addEventListener("mousemove", function(e) {
+        if( !is_painting && !is_erasing ) return;
+        if(
+            active_tool !== "line" &&
+            active_tool !== "circle" &&
+            active_tool !== "disc"
+        ) return;
+        if( tool_drag_start === null ) return;
+
+        const pixel = pixel_from_event_target(e.target);
+
+        if( pixel !== null ) {
+            tool_drag_last = { c: pixel.c, y: pixel.y };
+        } else {
+            const p = board_point_from_mouse_event(e);
+            tool_drag_last = { x: p.x, y: p.y };
+        }
+
+        show_tool_preview_shape(tool_drag_start, tool_drag_last);
+        show_tool_preview(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
+    });
+
 });
 
 function button_click_events() {
@@ -860,6 +921,30 @@ function button_click_events() {
 
     document.querySelector(".hint-actions .key-v").addEventListener("mouseup", (e) => {
         toggleViewKey();
+    });
+
+    document.querySelector(".hint-tools .tool-draw").addEventListener("click", (e) => {
+        select_tool("draw");
+    });
+
+    document.querySelector(".hint-tools .tool-cluster3").addEventListener("click", (e) => {
+        select_tool("cluster3");
+    });
+
+    document.querySelector(".hint-tools .tool-cluster5").addEventListener("click", (e) => {
+        select_tool("cluster5");
+    });
+
+    document.querySelector(".hint-tools .tool-line").addEventListener("click", (e) => {
+        select_tool("line");
+    });
+
+    document.querySelector(".hint-tools .tool-circle").addEventListener("click", (e) => {
+        select_tool("circle");
+    });
+
+    document.querySelector(".hint-tools .tool-disc").addEventListener("click", (e) => {
+        select_tool("disc");
     });
 }
 
@@ -1036,67 +1121,537 @@ for( let a = 0 + angle_offset; a < 360 + angle_offset; a += 360/steps ) {
 
 // #endregion
 
-// #region MOUSE
+// #region TOOLS / MOUSE
 
+// Tool geometry notes:
+// Pixel/cluster tools still work in logical image-space.
+// Line/circle tools work in SVG board-space, because a visually straight line on the radial board
+// is not a straight line in { column, y } coordinates.
+const tool_cluster_radius_3 = 1;
+const tool_cluster_radius_5 = 2;
+let active_tool = "draw";
 let is_painting = false;
 let is_erasing = false;
+let tool_drag_start = null;
+let tool_drag_last = null;
+let tool_preview_pixels = [];
+let tool_preview_shape = null;
 
-function evaluate_click(g_pixel) {
-    const node = Snap(g_pixel);
+// Keep these matched to the board construction/drawPixel() options.
+const tool_pixel_offset = 7;
+const tool_pixel_gap = 8;
+const tool_pixel_len = 25;
+const tool_inner_margin = 80;
+const tool_angular_fill = 0.7;
 
-    const c = node.data("c");
-    const y = node.data("y");
+const tool_line_thickness = tool_pixel_len * 0.51; // 0.85
+const tool_circle_outline_thickness = tool_pixel_len * 0.51; // 1.10
+
+function pixel_from_event_target(target) {
+    if( !target || !target.classList || !target.classList.contains("pixel-hit") ) return( null );
+
+    const node = Snap(target.parentNode);
+    return({
+        c: parseInt(node.data("c"), 10),
+        y: parseInt(node.data("y"), 10),
+        node: node,
+        target: target
+    });
+}
+
+function polar_to_xy(r, theta) {
+    return({ x: r * Math.cos(theta), y: r * Math.sin(theta) });
+}
+
+function pixel_theta(c) {
+    return((-Math.PI / 2) + normalized_c(c) * ((2 * Math.PI) / led_columns));
+}
+
+function pixel_r_inner(y) {
+    return(tool_inner_margin + (y + tool_pixel_offset) * (tool_pixel_len + tool_pixel_gap));
+}
+
+function pixel_center_xy(c, y) {
+    const theta = pixel_theta(c);
+    const r = pixel_r_inner(y) + (tool_pixel_len / 2);
+    return(polar_to_xy(r, theta));
+}
+
+function pixel_visible_polygon(c, y) {
+    const theta = pixel_theta(c);
+    const halfWidth = (((2 * Math.PI) / led_columns) * tool_angular_fill) / 2;
+    const rInner = pixel_r_inner(y);
+    const rOuter = rInner + tool_pixel_len;
+
+    return([
+        polar_to_xy(rInner, theta - halfWidth),
+        polar_to_xy(rInner, theta + halfWidth),
+        polar_to_xy(rOuter, theta + halfWidth),
+        polar_to_xy(rOuter, theta - halfWidth)
+    ]);
+}
+
+function pixel_key(c, y) {
+    return( normalized_c(c) + ":" + y );
+}
+
+function unique_pixels(points) {
+    const seen = new Set();
+    const result = [];
+
+    points.forEach((p) => {
+        if( p.y < 0 || p.y >= led_rows ) return;
+
+        const c = normalized_c(p.c);
+        const key = pixel_key(c, p.y);
+        if( seen.has(key) ) return;
+
+        seen.add(key);
+        result.push({ c: c, y: p.y });
+    });
+
+    return( result );
+}
+
+function shortest_column_delta(c1, c2) {
+    let delta = normalized_c(c2) - normalized_c(c1);
+    if( delta > led_columns / 2 ) delta -= led_columns;
+    if( delta < -led_columns / 2 ) delta += led_columns;
+    return( delta );
+}
+
+function pixels_for_cluster(center, radius) {
+    const points = [];
+
+    for( let dc = -radius; dc <= radius; dc++ ) {
+        for( let dy = -radius; dy <= radius; dy++ ) {
+            if( (dc * dc) + (dy * dy) <= radius * radius ) {
+                points.push({ c: center.c + dc, y: center.y + dy });
+            }
+        }
+    }
+
+    return( unique_pixels(points) );
+}
+
+function point_in_polygon(point, polygon) {
+    let inside = false;
+
+    for( let i = 0, j = polygon.length - 1; i < polygon.length; j = i++ ) {
+        const xi = polygon[i].x, yi = polygon[i].y;
+        const xj = polygon[j].x, yj = polygon[j].y;
+
+        const intersect = ((yi > point.y) !== (yj > point.y)) &&
+            (point.x < (xj - xi) * (point.y - yi) / (yj - yi) + xi);
+
+        if( intersect ) inside = !inside;
+    }
+
+    return( inside );
+}
+
+function ccw(a, b, c) {
+    return((c.y - a.y) * (b.x - a.x) > (b.y - a.y) * (c.x - a.x));
+}
+
+function segments_intersect(a, b, c, d) {
+    return(ccw(a, c, d) !== ccw(b, c, d) && ccw(a, b, c) !== ccw(a, b, d));
+}
+
+function distance_point_to_segment(point, a, b) {
+    const dx = b.x - a.x;
+    const dy = b.y - a.y;
+    const len2 = dx * dx + dy * dy;
+
+    if( len2 === 0 ) {
+        const ex = point.x - a.x;
+        const ey = point.y - a.y;
+        return(Math.sqrt(ex * ex + ey * ey));
+    }
+
+    let t = ((point.x - a.x) * dx + (point.y - a.y) * dy) / len2;
+    t = Math.max(0, Math.min(1, t));
+
+    const projected = { x: a.x + t * dx, y: a.y + t * dy };
+    const ex = point.x - projected.x;
+    const ey = point.y - projected.y;
+    return(Math.sqrt(ex * ex + ey * ey));
+}
+
+function segment_intersects_polygon(a, b, polygon) {
+    if( point_in_polygon(a, polygon) || point_in_polygon(b, polygon) ) return( true );
+
+    for( let i = 0; i < polygon.length; i++ ) {
+        const p1 = polygon[i];
+        const p2 = polygon[(i + 1) % polygon.length];
+        if( segments_intersect(a, b, p1, p2) ) return( true );
+    }
+
+    return( false );
+}
+
+function circle_intersects_polygon(center, radius, polygon) {
+    if( point_in_polygon(center, polygon) ) return( true );
+
+    for( let i = 0; i < polygon.length; i++ ) {
+        const p = polygon[i];
+        const dx = p.x - center.x;
+        const dy = p.y - center.y;
+        if( (dx * dx) + (dy * dy) <= radius * radius ) return( true );
+    }
+
+    for( let i = 0; i < polygon.length; i++ ) {
+        const p1 = polygon[i];
+        const p2 = polygon[(i + 1) % polygon.length];
+        if( distance_point_to_segment(center, p1, p2) <= radius ) return( true );
+    }
+
+    return( false );
+}
+
+function pixels_for_screen_line(start, end) {
+    const a = tool_point_xy(start);
+    const b = tool_point_xy(end);
+    const points = [];
+
+    for( let c = 0; c < led_columns; c++ ) {
+        for( let y = 0; y < led_rows; y++ ) {
+            if( thick_segment_intersects_polygon(a, b, pixel_visible_polygon(c, y), tool_line_thickness) ) {
+                points.push({ c: c, y: y });
+            }
+        }
+    }
+
+    return(points);
+}
+
+function board_point_from_mouse_event(e) {
+    const svg_node = document.querySelector("#svg");
+    const pt = svg_node.createSVGPoint();
+
+    pt.x = e.clientX;
+    pt.y = e.clientY;
+
+    // Use main, not root svg, because main is the rotated board group.
+    return pt.matrixTransform(main.node.getScreenCTM().inverse());
+}
+
+function tool_point_xy(point) {
+    if( typeof point.x === "number" && typeof point.y === "number" ) {
+        return({ x: point.x, y: point.y });
+    }
+
+    return pixel_center_xy(point.c, point.y);
+}
+
+function point_is_in_center_deadzone(point) {
+    const r = Math.sqrt((point.x * point.x) + (point.y * point.y));
+
+    // First drawable row starts here. Anything inside it is the center blank zone.
+    return r < pixel_r_inner(0);
+}
+
+function circle_outline_intersects_polygon(center, radius, polygon) {
+    const half = tool_circle_outline_thickness / 2;
+
+    function distance_from_center(point) {
+        const dx = point.x - center.x;
+        const dy = point.y - center.y;
+        return Math.sqrt((dx * dx) + (dy * dy));
+    }
+
+    // Corners near the ring
+    for( let i = 0; i < polygon.length; i++ ) {
+        if( Math.abs(distance_from_center(polygon[i]) - radius) <= half ) {
+            return true;
+        }
+    }
+
+    // Edge nearest-point near the ring
+    for( let i = 0; i < polygon.length; i++ ) {
+        const p1 = polygon[i];
+        const p2 = polygon[(i + 1) % polygon.length];
+
+        const d = distance_point_to_segment(center, p1, p2);
+
+        if( Math.abs(d - radius) <= half ) {
+            return true;
+        }
+    }
+
+    // Cell center near the ring. This catches lots of visually obvious misses.
+    let cx = 0;
+    let cy = 0;
+
+    for( let i = 0; i < polygon.length; i++ ) {
+        cx += polygon[i].x;
+        cy += polygon[i].y;
+    }
+
+    cx /= polygon.length;
+    cy /= polygon.length;
+
+    if( Math.abs(distance_from_center({ x: cx, y: cy }) - radius) <= half ) {
+        return true;
+    }
+
+    return false;
+}
+
+function pixels_for_screen_circle_outline(start, end) {
+    const center = tool_point_xy(start);
+    const edge = tool_point_xy(end);
+
+    const dx = edge.x - center.x;
+    const dy = edge.y - center.y;
+    const radius = Math.sqrt((dx * dx) + (dy * dy));
+
+    const points = [];
+
+    for( let c = 0; c < led_columns; c++ ) {
+        for( let y = 0; y < led_rows; y++ ) {
+            if( circle_outline_intersects_polygon(center, radius, pixel_visible_polygon(c, y)) ) {
+                points.push({ c: c, y: y });
+            }
+        }
+    }
+
+    return(points);
+}
+
+function pixels_for_filled_screen_circle(start, end) {
+    const center = tool_point_xy(start);
+    const edge = tool_point_xy(end);
+
+    const dx = edge.x - center.x;
+    const dy = edge.y - center.y;
+    const radius = Math.sqrt((dx * dx) + (dy * dy));
+    const points = [];
+
+    for( let c = 0; c < led_columns; c++ ) {
+        for( let y = 0; y < led_rows; y++ ) {
+            const cell_center = pixel_center_xy(c, y);
+            const cx = cell_center.x - center.x;
+            const cy = cell_center.y - center.y;
+
+            if( (cx * cx) + (cy * cy) <= radius * radius ||
+                circle_intersects_polygon(center, radius, pixel_visible_polygon(c, y)) ) {
+                points.push({ c: c, y: y });
+            }
+        }
+    }
+
+    return(points);
+}
+
+function thick_segment_intersects_polygon(a, b, polygon, thickness) {
+    const half = thickness / 2;
+
+    // Exact crossing still counts.
+    if( segment_intersects_polygon(a, b, polygon) ) {
+        return true;
+    }
+
+    // Any polygon corner close enough to the line counts.
+    for( let i = 0; i < polygon.length; i++ ) {
+        if( distance_point_to_segment(polygon[i], a, b) <= half ) {
+            return true;
+        }
+    }
+
+    // Polygon center close enough to the line counts.
+    let cx = 0;
+    let cy = 0;
+
+    for( let i = 0; i < polygon.length; i++ ) {
+        cx += polygon[i].x;
+        cy += polygon[i].y;
+    }
+
+    cx /= polygon.length;
+    cy /= polygon.length;
+
+    if( distance_point_to_segment({ x: cx, y: cy }, a, b) <= half ) {
+        return true;
+    }
+
+    return false;
+}
+
+function pixels_for_tool_at(point) {
+    if( active_tool === "cluster3" ) return( pixels_for_cluster(point, tool_cluster_radius_3) );
+    if( active_tool === "cluster5" ) return( pixels_for_cluster(point, tool_cluster_radius_5) );
+    return( unique_pixels([{ c: point.c, y: point.y }]) );
+}
+
+function pixels_for_drag_tool(start, end) {
+    if( active_tool === "line" ) return( pixels_for_screen_line(start, end) );
+    if( active_tool === "disc" ) return( pixels_for_filled_screen_circle(start, end) );
+    if( active_tool === "circle" ) return( pixels_for_screen_circle_outline(start, end) );
+    
+    return( pixels_for_tool_at(end) );
+}
+
+function repaint_pixel_node(c, y) {
+    const node = get_pixel_node(c, y);
+    if( !node ) return;
 
     erase_colors(node);
 
-    if( is_painting ) {
+    const pixel_value = get_pixel(c, y);
+    if( pixel_value !== -1 ) {
         node.addClass("painted");
-        node.addClass("color" + current_color)
-        set_pixel(c, y, current_color);
+        node.addClass("color" + pixel_value);
     }
+}
 
-    if( is_erasing ) {
-        set_pixel(c, y, -1);
-    }
+function apply_tool_pixels(points) {
+    points.forEach((p) => {
+        if( p.y < 0 || p.y >= led_rows ) return;
 
-    // localStorage is the live working copy now; every painted/erased pixel lands here immediately.
+        const c = normalized_c(p.c);
+        const value = is_erasing ? -1 : current_color;
+        set_pixel(c, p.y, value);
+        repaint_pixel_node(c, p.y);
+    });
+
     autosave_current_image();
 }
 
-// determines whether we're erasing or painting
-// target must be path.pixel-hit
-paper.mousedown( function(e) {
-    if( !e.target.classList.contains("pixel-hit") ) return;
-    const g_pixel = Snap(e.target.parentNode);
+function clear_tool_preview_shape() {
+    if( tool_preview_shape ) {
+        tool_preview_shape.remove();
+        tool_preview_shape = null;
+    }
+}
 
-    const node = Snap(g_pixel);
-    const c = node.data("c");
-    const y = node.data("y");
+function show_tool_preview_shape(start, end) {
+    clear_tool_preview_shape();
 
+    const a = tool_point_xy(start);
+    const b = tool_point_xy(end);
+
+    if( active_tool === "line" ) {
+        tool_preview_shape = paper.line(a.x, a.y, b.x, b.y);
+    }
+    else if( active_tool === "circle" || active_tool === "disc" ) {
+        const dx = b.x - a.x;
+        const dy = b.y - a.y;
+        tool_preview_shape = paper.circle(a.x, a.y, Math.sqrt((dx * dx) + (dy * dy)));
+    }
+
+    if( tool_preview_shape ) {
+        tool_preview_shape.attr({
+            class: "tool-preview-shape",
+            fill: "none",
+            stroke: "#ffffff",
+            "stroke-width": 4,
+            "stroke-dasharray": "10 8",
+            opacity: 0.85,
+            "pointer-events": "none"
+        });
+
+        // Important: the board rotates by transforming `main`, so preview shapes need to
+        // live inside that same group or they will drift visually when the canvas is rotated.
+        main.add(tool_preview_shape);
+        tool_preview_shape.toFront();
+    }
+}
+
+function clear_tool_preview() {
+    tool_preview_pixels.forEach((p) => {
+        const node = get_pixel_node(p.c, p.y);
+        if( node ) {
+            node.removeClass("tool-preview");
+            node.removeClass("tool-preview-erase");
+        }
+    });
+    tool_preview_pixels = [];
+    clear_tool_preview_shape();
+}
+
+function show_tool_preview(points) {
+    tool_preview_pixels.forEach((p) => {
+        const node = get_pixel_node(p.c, p.y);
+        if( node ) {
+            node.removeClass("tool-preview");
+            node.removeClass("tool-preview-erase");
+        }
+    });
+
+    tool_preview_pixels = unique_pixels(points);
+    tool_preview_pixels.forEach((p) => {
+        const node = get_pixel_node(p.c, p.y);
+        if( node ) {
+            node.addClass("tool-preview");
+            if( is_erasing ) node.addClass("tool-preview-erase");
+        }
+    });
+}
+
+function select_tool(tool_name) {
+    active_tool = tool_name;
+
+    document.querySelectorAll(".hint-tools .pressable").forEach((kbd) => {
+        kbd.classList.remove("selected");
+    });
+
+    const selected = document.querySelector(".hint-tools .tool-" + tool_name);
+    if( selected ) selected.classList.add("selected");
+}
+
+function finish_tool_drag() {
+    if( tool_drag_start !== null && tool_drag_last !== null ) {
+        if( active_tool === "line" || active_tool === "circle" || active_tool === "disc") {
+            apply_tool_pixels(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
+            update_output_code();
+        }
+    }
+
+    clear_tool_preview();
+    tool_drag_start = null;
+    tool_drag_last = null;
+    is_painting = false;
+    is_erasing = false;
+    commit_undoable_pixel_edit();
+}
+
+function begin_tool_drag(point, shiftKey) {
     begin_undoable_pixel_edit();
 
-    if( get_pixel(c, y) !== -1 ) {
+    if( shiftKey ) {
         is_erasing = true;
+        is_painting = false;
     } else {
         is_painting = true;
+        is_erasing = false;
     }
-    
-    evaluate_click( e.target.parentNode );
-    update_tooltip(e.target);
-    update_output_code();
-});
 
-paper.mouseup( function(e) {
-    is_painting = false;
-    is_erasing = false;
-    commit_undoable_pixel_edit();
-});
+    tool_drag_start = { c: point.c, y: point.y };
+    tool_drag_last = { c: point.c, y: point.y };
 
-window.addEventListener("mouseup", (e) => {
-    is_painting = false;
-    is_erasing = false;
-    commit_undoable_pixel_edit();
-});
+    if( active_tool === "line" || active_tool === "circle" || active_tool === "disc" ) {
+        show_tool_preview_shape(tool_drag_start, tool_drag_last);
+        show_tool_preview(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
+    } else {
+        apply_tool_pixels(pixels_for_tool_at(point));
+        update_output_code();
+    }
+}
+
+function continue_tool_drag(point) {
+    if( !is_painting && !is_erasing ) return;
+
+    tool_drag_last = { c: point.c, y: point.y };
+
+    if( active_tool === "line" || active_tool === "circle" || active_tool === "disc" ) {
+        show_tool_preview_shape(tool_drag_start, tool_drag_last);
+        show_tool_preview(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
+    } else {
+        apply_tool_pixels(pixels_for_tool_at(point));
+        update_output_code();
+    }
+}
 
 // c, y, num, start
 function get_visual_byte_range(c, y) {
@@ -1108,57 +1663,69 @@ function get_visual_byte_range(c, y) {
     });
 }
 
-paper.mouseover(function(e) {
-    
-    // clear out
-    if( !e.target.classList.contains("pixel-hit") ) {
+function show_hover_state(e) {
+    const point = pixel_from_event_target(e.target);
+    if( point === null ) {
         document.querySelector("#tip_left").style.opacity = 0;
-        return;
+        return( null );
     }
 
-    // outline current pixel
     Snap(e.target.nextElementSibling).addClass("mouseover");
 
-    // outline current byte
-    const c = Snap(e.target.parentNode).data("c");
-    const y = Snap(e.target.parentNode).data("y");
-    const range = get_visual_byte_range(c, y);
-
+    const range = get_visual_byte_range(point.c, point.y);
     for( let i = 0; i < range.n; i++ ) {
-        const g_item = get_pixel_node(c, range.s + i)
-        g_item[1].addClass("mouseover-byte");
+        const g_item = get_pixel_node(point.c, range.s + i);
+        if( g_item ) g_item[1].addClass("mouseover-byte");
     }
 
-    // draw if click
-    if( e.buttons === 1 ) {
-        evaluate_click( e.target.parentNode );
-        update_tooltip( e.target );
-        update_output_code();
-    } else {
-        update_tooltip(e.target);
-    }
-});
+    update_tooltip(e.target);
+    return( point );
+}
 
-paper.mouseout(function(e) {
-
-    // clear out
-    if( !e.target.classList.contains("pixel-hit") ) {
+function clear_hover_state(e) {
+    const point = pixel_from_event_target(e.target);
+    if( point === null ) {
         document.querySelector("#tip_left").style.opacity = 0;
         return;
     }
 
     Snap(e.target.nextElementSibling).removeClass("mouseover");
 
-    // outline current byte
-    const c = Snap(e.target.parentNode).data("c");
-    const y = Snap(e.target.parentNode).data("y");
-    const range = get_visual_byte_range(c, y);
-
+    const range = get_visual_byte_range(point.c, point.y);
     for( let i = 0; i < range.n; i++ ) {
-        const g_item = get_pixel_node(c, range.s + i)
-        g_item[1].removeClass("mouseover-byte");
+        const g_item = get_pixel_node(point.c, range.s + i);
+        if( g_item ) g_item[1].removeClass("mouseover-byte");
     }
+}
 
+// target must be path.pixel-hit
+paper.mousedown(function(e) {
+    const point = pixel_from_event_target(e.target);
+    if( point === null ) return;
+
+    begin_tool_drag(point, e.shiftKey);
+    update_tooltip(e.target);
+});
+
+paper.mouseup(function(e) {
+    finish_tool_drag();
+});
+
+window.addEventListener("mouseup", (e) => {
+    finish_tool_drag();
+});
+
+paper.mouseover(function(e) {
+    const point = show_hover_state(e);
+    if( point === null ) return;
+
+    if( e.buttons === 1 ) {
+        continue_tool_drag(point);
+    }
+});
+
+paper.mouseout(function(e) {
+    clear_hover_state(e);
 });
 
 // #endregion
@@ -1331,6 +1898,27 @@ document.addEventListener("keypress", function(k) {
     if( k.key.toLowerCase() === "v" ) {
         toggleViewKey();
     }
+    
+    const k2 = k.key.toLowerCase();
+
+    if( k2 === "p" ) {
+        select_tool("draw");
+    }
+    else if( k2 === "b" ) {
+        select_tool("cluster3");
+    }
+    else if( k2 === "g" ) {
+        select_tool("cluster5");
+    }
+    else if( k2 === "l" ) {
+        select_tool("line");
+    }
+    else if( k2 === "c"  ) {
+        select_tool("circle");
+    }
+    else if( k2 === "f" ) {
+        select_tool("disc");
+    }    
 });
 
 document.addEventListener("keydown", function(k) {
