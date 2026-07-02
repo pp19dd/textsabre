@@ -269,3 +269,30 @@ a { color: silver }
 #image_index option.has-content {
     font-weight: bold;
 }
+
+/* history hotkey buttons */
+.hint-history .pressable.disabled {
+    opacity: 0.35;
+    filter: grayscale(1);
+    cursor: default;
+    pointer-events: none;
+    box-shadow: none;
+}
+
+.hint-history .pressable.disabled:hover {
+    transform: none;
+}
+
+.hint-history .pressable.active:not(.disabled) {
+    opacity: 1;
+    cursor: pointer;
+}
+
+.ctrl {
+    font-size: 0.75rem;
+    font-weight: 400;
+    color: #aaa;
+    margin-right: 2px;
+    /* transform: rotate(-90deg) translateY(-1px); */
+    display: inline-block;
+}

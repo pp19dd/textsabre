@@ -105,11 +105,101 @@ const storage_backup_version = 1;
 const storage_color_key = "sabre-current-color";
 const storage_rotation_key = "sabre-rotation";
 const storage_zoom_key = "sabre-zoom";
+const storage_history_key = "sabre-undo-history";
+
+// Undo stores full image snapshots, one entry per completed paint/erase gesture.
+// Bump this up/down as desired; memory use is roughly rows * columns * steps integers.
+const undo_step_limit = 25;
+let active_image_index = "0";
+
+let image_history = {};
+
+function clone_history_stack(stack) {
+    if( !Array.isArray(stack) ) return( [] );
+
+    return( stack
+        .filter((snapshot) => valid_pixel_array(snapshot))
+        .map((snapshot) => snapshot.slice())
+    );
+}
+
+function trim_history_stack(stack) {
+    while( stack.length > undo_step_limit ) {
+        stack.shift();
+    }
+}
+
+function save_history_to_localstorage() {
+    const saved_history = {};
+
+    Object.keys(image_history).forEach((slot) => {
+        const h = image_history[slot];
+
+        saved_history[slot] = {
+            undo_stack: clone_history_stack(h.undo_stack),
+            redo_stack: clone_history_stack(h.redo_stack)
+        };
+    });
+
+    try {
+        localStorage.setItem(storage_history_key, JSON.stringify(saved_history));
+    } catch(err) {
+        console.warn("Could not save undo history to localStorage", err);
+    }
+}
+
+function load_history_from_localstorage() {
+    const saved = localStorage.getItem(storage_history_key);
+    image_history = {};
+
+    if( saved === null ) return;
+
+    try {
+        const parsed = JSON.parse(saved);
+        if( parsed === null || typeof parsed !== "object" || Array.isArray(parsed) ) return;
+
+        Object.keys(parsed).forEach((slot) => {
+            const h = parsed[slot];
+            const undo_stack = clone_history_stack(h && h.undo_stack);
+            const redo_stack = clone_history_stack(h && h.redo_stack);
+
+            trim_history_stack(undo_stack);
+            trim_history_stack(redo_stack);
+
+            image_history[slot] = {
+                undo_stack: undo_stack,
+                redo_stack: redo_stack,
+                pending_undo_pixels: null
+            };
+        });
+    } catch(err) {
+        console.warn("Could not parse localStorage " + storage_history_key, err);
+        image_history = {};
+    }
+}
+
+function remove_history_from_localstorage() {
+    localStorage.removeItem(storage_history_key);
+}
+
+function get_image_history(image_index) {
+    const slot = image_index.toString();
+
+    if( typeof image_history[slot] === "undefined" ) {
+        image_history[slot] = {
+            undo_stack: [],
+            redo_stack: [],
+            pending_undo_pixels: null
+        };
+    }
+
+    return image_history[slot];
+}
 
 const image_slot_content_mark = " ●";
 
 function get_current_image_index() {
-    return( document.querySelector("#image_index").value );
+    return( active_image_index );
 }
 
 function get_storage_key(image_index) {
@@ -142,7 +232,9 @@ function update_image_index_markers() {
 
     Array.from(select.options).forEach((option) => {
         const has_content = localstorage_image_has_content(option.value);
+        const hotkey_number = parseInt(option.value, 10) + 1;
         option.textContent = "image_" + option.value + (has_content ? image_slot_content_mark : "");
+        option.title = "Alt+" + hotkey_number + " switches to image_" + option.value;
         option.classList.toggle("has-content", has_content);
     });
 }
@@ -172,14 +264,192 @@ function save_pixels_to_localstorage(image_index, pixel_array) {
     localStorage.setItem(key, JSON.stringify(pixel_array));
 }
 
-function autosave_current_image() {
-    save_pixels_to_localstorage(get_current_image_index(), pixels);
+function autosave_current_image(image_index) {
+    // Be explicit here. Browsers can expose #image_index as a global named image_index,
+    // which made autosave write to sabre-[object HTMLSelectElement] instead of sabre-0, etc.
+    const slot = (
+        typeof image_index === "undefined"
+            ? active_image_index
+            : image_index.toString()
+    );
+
+    save_pixels_to_localstorage(slot, pixels);
     update_image_index_markers();
 }
 
+function same_pixel_array(pixel_array1, pixel_array2) {
+    if( !valid_pixel_array(pixel_array1) || !valid_pixel_array(pixel_array2) ) return( false );
+    for( let i = 0; i < pixel_array1.length; i++ ) {
+        if( pixel_array1[i] !== pixel_array2[i] ) return( false );
+    }
+    return( true );
+}
+
+function clear_history(image_index) {
+    const h = get_image_history(
+        typeof image_index === "undefined" ? active_image_index : image_index
+    );
+
+    h.undo_stack = [];
+    h.redo_stack = [];
+    h.pending_undo_pixels = null;
+
+    save_history_to_localstorage();
+    update_undo_redo_buttons();
+}
+
+function clear_all_history() {
+    image_history = {};
+    remove_history_from_localstorage();
+    update_undo_redo_buttons();
+}
+
+function push_undo_snapshot(snapshot) {
+    if( !valid_pixel_array(snapshot) ) return;
+
+    const h = get_image_history(active_image_index);
+
+    h.undo_stack.push(snapshot.slice());
+
+    while( h.undo_stack.length > undo_step_limit ) {
+        h.undo_stack.shift();
+    }
+
+    h.redo_stack = [];
+
+    save_history_to_localstorage();
+    update_undo_redo_buttons();
+}
+
+function begin_undoable_pixel_edit() {
+    const h = get_image_history(active_image_index);
+
+    if( h.pending_undo_pixels === null ) {
+        h.pending_undo_pixels = pixels.slice();
+    }
+}
+
+function commit_undoable_pixel_edit() {
+    const h = get_image_history(active_image_index);
+
+    if( h.pending_undo_pixels === null ) return;
+
+    const before = h.pending_undo_pixels;
+    h.pending_undo_pixels = null;
+
+    if( same_pixel_array(before, pixels) ) {
+        update_undo_redo_buttons();
+        return;
+    }
+
+    push_undo_snapshot(before);
+}
+
+function set_history_control_state(control, is_available) {
+    if( !control ) return;
+
+    const is_button = control.tagName.toLowerCase() === "button";
+
+    if( is_button ) {
+        control.disabled = !is_available;
+        control.hidden = false;
+    }
+
+    control.classList.toggle("active", is_available);
+    control.classList.toggle("disabled", !is_available);
+    control.classList.toggle("selected", false);
+    control.setAttribute("aria-disabled", is_available ? "false" : "true");
+}
+
+function update_undo_redo_buttons() {
+    const h = get_image_history(active_image_index);
+    const can_undo = h.undo_stack.length > 0;
+    const can_redo = h.redo_stack.length > 0;
+
+    set_history_control_state(document.querySelector(".hint-history .key-undo"), can_undo);
+    set_history_control_state(document.querySelector(".hint-history .key-redo"), can_redo);
+}
+
+function restore_pixels_from_history(snapshot) {
+    if( !valid_pixel_array(snapshot) ) return;
+    pixels = snapshot.slice();
+    load_pixel_array(pixels);
+    update_output_code();
+    autosave_current_image();
+}
+
+function action_undo() {
+    commit_undoable_pixel_edit();
+
+    const h = get_image_history(active_image_index);
+
+    if( h.undo_stack.length === 0 ) return;
+
+    h.redo_stack.push(pixels.slice());
+
+    restore_pixels_from_history(h.undo_stack.pop());
+
+    save_history_to_localstorage();
+    update_undo_redo_buttons();
+}
+
+
+function action_redo() {
+    commit_undoable_pixel_edit();
+
+    const h = get_image_history(active_image_index);
+
+    if( h.redo_stack.length === 0 ) return;
+
+    h.undo_stack.push(pixels.slice());
+
+    while( h.undo_stack.length > undo_step_limit ) {
+        h.undo_stack.shift();
+    }
+
+    restore_pixels_from_history(h.redo_stack.pop());
+
+    save_history_to_localstorage();
+    update_undo_redo_buttons();
+}
+
+function switch_image_slot(next_image_index, previous_image_index) {
+    commit_undoable_pixel_edit();
+
+    const next = parseInt(next_image_index, 10);
+    if( !Number.isInteger(next) || next < 0 || next > 7 ) return;
+
+    const next_slot = next.toString();
+
+    const previous_slot = (
+        typeof previous_image_index === "undefined"
+            ? active_image_index
+            : previous_image_index.toString()
+    );
+
+    if( next_slot === previous_slot ) {
+        active_image_index = next_slot;
+        document.querySelector("#image_index").value = active_image_index;
+        return;
+    }
+
+    // Save the image we are leaving.
+    save_pixels_to_localstorage(previous_slot, pixels);
+
+    active_image_index = next_slot;
+    document.querySelector("#image_index").value = active_image_index;
+
+    
+    pixels = load_pixels_from_localstorage(active_image_index);
+    load_pixel_array(pixels);
+    update_output_code();
+    update_image_index_markers();
+    update_undo_redo_buttons();
+}
+
 function load_current_image_from_localstorage() {
-    pixels = load_pixels_from_localstorage(get_current_image_index());
-    load_pixel_array( pixels );
+    pixels = load_pixels_from_localstorage(active_image_index);
+    load_pixel_array(pixels);
     main.transform("r" + rotation + ",0,0");
     update_output_code();
     update_image_index_markers();
@@ -204,7 +474,8 @@ function get_textsabre_backup() {
         selected_image_index: get_current_image_index(),
         editor_state: {
             current_color: current_color,
-            zoom_state: zoom_state,
+            view_state: view_state,
+            zoom_state: view_state, // backward-compatible save field
             rotation: rotation
         },
         images: {}
@@ -265,16 +536,18 @@ function load_output() {
                 if( typeof backup.selected_image_index !== "undefined" ) {
                     const select = document.querySelector("#image_index");
                     select.value = backup.selected_image_index.toString();
+                    active_image_index = select.value;
                 }
 
                 if( backup.editor_state && typeof backup.editor_state === "object" ) {
                     restore_editor_state(backup.editor_state);
                     select_color(current_color);
-                    applyZoomState();
+                    applyViewState();
                     applyRotationState();
                     save_editor_state_to_localstorage();
                 }
 
+                clear_all_history();
                 load_current_image_from_localstorage();
             } catch(err) {
                 console.error(err);
@@ -348,11 +621,6 @@ function get_arduino_code(this_image_index, this_pixel_array) {
         }
     }
 
-    // let code = "";
-    //if( include_headers === true ) {
-        // code += `// image_${this_image_index}.h\n` +
-        // `// ${led_rows} x ${led_columns} LEDs\n`;
-    // }
     ret.meta.image_index = this_image_index;
     ret.meta.date = new Date().toLocaleString().split(",")[0].trim();
     ret.meta.time = new Date().toLocaleString().split(",")[1].trim();
@@ -363,12 +631,6 @@ function get_arduino_code(this_image_index, this_pixel_array) {
     for( k in pixel_colors ) {
         ret.meta["color_" + k] = pixel_colors[k];
     }
-    
-    // code += `// ${pixel_count} pixels\n`;
-    
-    // if( include_headers === true ) {
-        // code += "#include <Arduino.h>\n";
-    // }
 
     for( let p = 0; p < planes.length; p++ ) {
         ret.code += `const uint8_t IMAGE_${this_image_index}_${p}[] PROGMEM = {`;
@@ -379,12 +641,6 @@ function get_arduino_code(this_image_index, this_pixel_array) {
         }
         ret.code += "\n};\n"
     }
-
-    // code += planes[0].join(", ") + "\n\n";
-    // code += "const uint8_t CHAR_M_1[] PROGMEM = {\n";
-    // code += planes[1].join(", ") + "\n\n";
-    // code += "const uint8_t CHAR_M_2[] PROGMEM = {\n";
-    // code += planes[2].join(", ") + "\n\n";
 
     return( ret );
 }
@@ -454,8 +710,10 @@ function restore_editor_state(state) {
         current_color = clamp_number(state.current_color, 0, 9, current_color);
     }
 
-    if( typeof state.zoom_state !== "undefined" ) {
-        zoom_state = clamp_number(state.zoom_state, 0, 1, zoom_state);
+    if( typeof state.view_state !== "undefined" ) {
+        view_state = clamp_number(state.view_state, 0, 1, view_state);
+    } else if( typeof state.zoom_state !== "undefined" ) {
+        view_state = clamp_number(state.zoom_state, 0, 1, view_state);
     }
 
     if( typeof state.rotation !== "undefined" ) {
@@ -467,14 +725,14 @@ function restore_editor_state(state) {
 function load_editor_state_from_localstorage() {
     restore_editor_state({
         current_color: localStorage.getItem(storage_color_key),
-        zoom_state: localStorage.getItem(storage_zoom_key),
+        view_state: localStorage.getItem(storage_zoom_key),
         rotation: localStorage.getItem(storage_rotation_key)
     });
 }
 
 function save_editor_state_to_localstorage() {
     localStorage.setItem(storage_color_key, current_color.toString());
-    localStorage.setItem(storage_zoom_key, zoom_state.toString());
+    localStorage.setItem(storage_zoom_key, view_state.toString());
     localStorage.setItem(storage_rotation_key, rotation.toString());
 }
 
@@ -489,16 +747,12 @@ function applyRotationState() {
 
 // #region INIT
 
-// const led_bytes = parseInt(Math.ceil(led_rows/8));
-// stores tracked bytes for output
-// let tracked = new Array(led_columns * led_bytes);
-
 let rotation = 0;
 let prev_rotation = 0;
 let is_left = false;
 let is_right = false;
 let current_color = 0;
-let zoom_state = 0;
+let view_state = 0;
 
 var paper = Snap("#svg");
 paper.attr({ viewBox: "-1500 -1500 3000 1500"});
@@ -508,9 +762,13 @@ document.addEventListener("DOMContentLoaded", (e) => {
     load_editor_state_from_localstorage();
     select_color( current_color );
     button_click_events();
-    applyZoomState();
+    applyViewState();
     applyRotationState();
+    active_image_index = document.querySelector("#image_index").value;
+    load_history_from_localstorage();
     load_current_image_from_localstorage();
+    document.querySelector("#image_index").title = "Switch image slots with Alt+1 through Alt+8";
+    update_undo_redo_buttons();
 
     // standardized visual effect acknowledging a click
     document.querySelectorAll("button").forEach( (button) => {
@@ -534,8 +792,31 @@ document.addEventListener("DOMContentLoaded", (e) => {
         action_clear_all();
     });
 
-    document.querySelector("#image_index").addEventListener("change", (e) => {
-        load_current_image_from_localstorage();
+    document.querySelector(".hint-history .key-undo").addEventListener("click", (e) => {
+        if( e.currentTarget.getAttribute("aria-disabled") === "true" ) return;
+        action_undo();
+    });
+
+    document.querySelector(".hint-history .key-redo").addEventListener("click", (e) => {
+        if( e.currentTarget.getAttribute("aria-disabled") === "true" ) return;
+        action_redo();
+    });
+
+    const image_select = document.querySelector("#image_index");
+    image_select.dataset.previousValue = image_select.value;
+    image_select.addEventListener("focus", (e) => {
+        e.target.dataset.previousValue = active_image_index;
+    });
+    image_select.addEventListener("mousedown", (e) => {
+        e.target.dataset.previousValue = active_image_index;
+    });
+    image_select.addEventListener("change", (e) => {
+        const previous = e.target.dataset.previousValue || active_image_index;
+        const next = e.target.value;
+
+        switch_image_slot(next, previous);
+
+        e.target.dataset.previousValue = active_image_index;
     });
 
     document.querySelector("button#save").addEventListener("click", (e) => {
@@ -577,8 +858,8 @@ function button_click_events() {
         setRotationKeyRight(false);
     });
 
-    document.querySelector(".hint-actions .key-z").addEventListener("mouseup", (e) => {
-        toggleZoomKey();
+    document.querySelector(".hint-actions .key-v").addEventListener("mouseup", (e) => {
+        toggleViewKey();
     });
 }
 
@@ -590,16 +871,8 @@ function get_visual_byte(column, byte, specific_color) {
     let result = 0b0000_0000;
     const offset = byte * 8;
     for( let i = 0; i < 8; i++ ) {
-
-        // const num_pixel = 33 - ((byte * 8) + i);
         const num_pixel = offset + i;
 
-        // 32 leds, so last byte only has 2 bits
-        // if( num_pixel >= led_rows ) break;
-
-        // slow, replacing with faster?
-        // const g_item = main.selectAll("g.column-" + column)[0][num_pixel];
-        // if( g_item.hasClass("painted") ) result = bit_write(result, i);
         if( typeof specific_color === "undefined" ) {
             if( get_pixel(column, num_pixel) !== -1 ) result = bit_write(result, i);
         } else {
@@ -637,25 +910,8 @@ function byte_to_hex(byte) {
 
 // #endregion
 
-// #endregion
-
 // #region PIXEL
 
-//                 wt
-//             wt/2   wt/2
-//                  |
-//          --------+--------       h/2
-//           \      |      /
-//      ------+-----+-----+------      }  h
-//             \    |    /
-//              ----+----           h/2
-//                  |
-//             wb/2   wb/2
-//                 wb
-
-// draw one led pixel cell:
-//  - visible path: smaller "pixel" (keeps gaps visible)
-//  - hit path: full cell area (covers gaps so it's easy to click/drag)
 function drawPixel(paper, options) {
     const angleSteps   = options.angle_steps || 60;
     const radius       = options.radius      || 1000;
@@ -695,14 +951,6 @@ function drawPixel(paper, options) {
         const p3 = polar(rOutClamped, thetaCenter + halfWidth);
         const p4 = polar(rOutClamped, thetaCenter - halfWidth);
 
-        // return [
-        // "M", p1.x, p1.y,
-        // "A", rInner, rInner, 0, 0, 1, p2.x, p2.y,
-        // "L", p3.x, p3.y,
-        // "A", rOutClamped, rOutClamped, 0, 0, 0, p4.x, p4.y,
-        // "Z"
-        // ].join(" ");
-
         return [
             "M", p1.x, p1.y,
             "L", p2.x, p2.y,
@@ -735,8 +983,6 @@ function drawPixel(paper, options) {
     const hit = paper.path(dHit).attr({ class: "pixel-hit" }); // invisible
     const vis = paper.path(dVis).attr({ class: "pixel-vis" }); // visible
 
-    // hit.data("pixel", vis); // store snap element reference
-
     g.add(hit);
     g.add(vis);
 
@@ -761,28 +1007,22 @@ for( let a = 0 + angle_offset; a < 360 + angle_offset; a += 360/steps ) {
         const pixel = drawPixel(paper, {
             radius      : 1400,
             num_pixels  : led_rows + offset,
-            angle_steps : steps,                // columns around the circle
-            pixel_index : i,                    // 0..numPixels-1
-            pixel_gap   : 8,                    // radial gap between LEDs
-            pixel_len   : 25,                   // radial length of 1 LED
-            inner_margin : 80,                  // distance from center to first LED
+            angle_steps : steps,
+            pixel_index : i,
+            pixel_gap   : 8,
+            pixel_len   : 25,
+            inner_margin : 80,
             current_angle: a,
         });
         
-        // staple info to pixel-hit
         pixel.addClass("pixel-" + (i - offset));
 
-        // reverse and forward lookups
-        // set on g.pixel
         pixel.data("c", count_column); 
         pixel.data("y", (i - offset));
         set_pixel_node(count_column, (i - offset), pixel );
 
-        // pixel[0].data("y", 32 - (i - offset + 1));
         g.add(pixel);
     }
-    // g.mouseover(function(e) { g.attr({ opacity: 0.5 }) });
-    // g.mouseout(function(e) { g.attr({ opacity: 1 }) });
 
     if( count_column % 5 ) {
     } else {
@@ -801,19 +1041,7 @@ for( let a = 0 + angle_offset; a < 360 + angle_offset; a += 360/steps ) {
 let is_painting = false;
 let is_erasing = false;
 
-// target must be path.pixel-hit
-// verified by both .click and .mouseover
-// applies painting or erasure
-// sigh, change to g
-
-// function evaluate_click(target_path) {
 function evaluate_click(g_pixel) {
-    // const g_pixel = Snap(target_path.parentNode);
-    // if( typeof g_pixel[0] === "undefined" ) {
-    //     console.warn( "undefined" );
-    //     return;
-    // }
-    
     const node = Snap(g_pixel);
 
     const c = node.data("c");
@@ -822,14 +1050,12 @@ function evaluate_click(g_pixel) {
     erase_colors(node);
 
     if( is_painting ) {
-        // node is g.pixel
         node.addClass("painted");
         node.addClass("color" + current_color)
         set_pixel(c, y, current_color);
     }
 
     if( is_erasing ) {
-        // node.removeClass("painted");
         set_pixel(c, y, -1);
     }
 
@@ -847,13 +1073,8 @@ paper.mousedown( function(e) {
     const c = node.data("c");
     const y = node.data("y");
 
+    begin_undoable_pixel_edit();
 
-    // if( is_painting || is_erasing ) return;
-    // if( !e.target.classList.contains("pixel-hit") ) return;
-
-    // const pixel = Snap(e.target).data("pixel");
-    
-    // if( g_pixel.hasClass("painted") ) {
     if( get_pixel(c, y) !== -1 ) {
         is_erasing = true;
     } else {
@@ -868,6 +1089,13 @@ paper.mousedown( function(e) {
 paper.mouseup( function(e) {
     is_painting = false;
     is_erasing = false;
+    commit_undoable_pixel_edit();
+});
+
+window.addEventListener("mouseup", (e) => {
+    is_painting = false;
+    is_erasing = false;
+    commit_undoable_pixel_edit();
 });
 
 // c, y, num, start
@@ -875,7 +1103,7 @@ function get_visual_byte_range(c, y) {
     return({
         c: c,
         y: y,
-        n: (y >= 32 ? 2 : 8), // hardcoded 2 bit case
+        n: (y >= 32 ? 2 : 8),
         s: (Math.floor(y / 8) * 8)
     });
 }
@@ -897,22 +1125,17 @@ paper.mouseover(function(e) {
     const range = get_visual_byte_range(c, y);
 
     for( let i = 0; i < range.n; i++ ) {
-        // const g_item = main.selectAll("g.column-" + Snap(e.target).data("c"))[0][range.s + i][1];
         const g_item = get_pixel_node(c, range.s + i)
         g_item[1].addClass("mouseover-byte");
     }
 
     // draw if click
     if( e.buttons === 1 ) {
-        // evaluate_click( e.target);
-        
-        // confirmed g.pixel
         evaluate_click( e.target.parentNode );
         update_tooltip( e.target );
         update_output_code();
     } else {
         update_tooltip(e.target);
-        // update_output_code();
     }
 });
 
@@ -1004,8 +1227,6 @@ function update_tooltip(e_target) {
 
 
 function copy_output(text) {
-    // const text = document.getElementById("output").value;
-    
     const textarea = document.createElement( "textarea" );
     textarea.value = text;
     
@@ -1026,11 +1247,13 @@ function copy_output(text) {
 // #endregion
 
 // #region ACTIONS
+
 function action_new() {
     if( !confirm("clear image slot # " + get_current_image_index() + " ? this will immediately update localStorage." ) ) {
         return;
     }
 
+    clear_history();
     pixels = blank_pixel_array();
     load_pixel_array(pixels);
     update_output_code();
@@ -1042,13 +1265,16 @@ function action_clear_all() {
         return;
     }
 
+    clear_all_history();
+
     const blank_image = blank_pixel_array();
 
     for( let i = 0; i < 8; i++ ) {
         save_pixels_to_localstorage(i, blank_image);
     }
 
-    document.querySelector("#image_index").value = "0";
+    active_image_index = "0";
+    document.querySelector("#image_index").value = active_image_index;
 
     pixels = blank_pixel_array();
     load_pixel_array(pixels);
@@ -1060,20 +1286,21 @@ function action_clear_all() {
 
 function reset_editor_tools_to_defaults() {
     current_color = 0;
-    zoom_state = 0;
+    view_state = 0;
     rotation = 0;
     prev_rotation = 0;
     is_left = false;
     is_right = false;
 
     select_color(current_color);
-    applyZoomState();
+    applyViewState();
     applyRotationState();
     save_editor_state_to_localstorage();
 
     document.querySelector(".hint-rotate .key-a").classList.remove("selected");
     document.querySelector(".hint-rotate .key-d").classList.remove("selected");
 }
+
 // #endregion
 
 
@@ -1093,25 +1320,49 @@ function select_color(color_index) {
 }
 
 document.addEventListener("keypress", function(k) {
-    for( let i = 0; i <= 7; i++ ) {
+    if( k.altKey || k.ctrlKey || k.metaKey ) return;
+
+    for( let i = 1; i <= 7; i++ ) {
         if( k.key === i.toString() ) {
-            // if( i === 0 ) {
-                // select_color(9);
-            //  } else {
             select_color( i-1 );
-            //  }
         }
     }
 
-    if( k.key.toLowerCase() === "z" ) {
-        toggleZoomKey();
+    if( k.key.toLowerCase() === "v" ) {
+        toggleViewKey();
     }
 });
 
 document.addEventListener("keydown", function(k) {
+    if( k.altKey && !k.ctrlKey && !k.metaKey && !k.shiftKey ) {
+        const n = parseInt(k.key, 10);
+        if( Number.isInteger(n) && n >= 1 && n <= 8 ) {
+            k.preventDefault();
+            switch_image_slot(n - 1);
+            return;
+        }
+    }
+
+    if( (k.ctrlKey || k.metaKey) && k.key.toLowerCase() === "z" ) {
+        k.preventDefault();
+        if( k.shiftKey ) {
+            action_redo();
+        } else {
+            action_undo();
+        }
+        return;
+    }
+
+    if( (k.ctrlKey || k.metaKey) && k.key.toLowerCase() === "y" ) {
+        k.preventDefault();
+        action_redo();
+        return;
+    }
+
     if( k.key === "ArrowLeft" || k.key === "a" ) setRotationKeyLeft(true);
     if( k.key === "ArrowRight" || k.key === "d" ) setRotationKeyRight(true);
 });
+
 document.addEventListener("keyup", function(k) {
     if( k.key === "ArrowLeft" || k.key === "a" ) setRotationKeyLeft(false);
     if( k.key === "ArrowRight" || k.key === "d" ) setRotationKeyRight(false);
@@ -1131,26 +1382,26 @@ function do_rotation() {
 
 requestAnimationFrame(do_rotation);
 
-function applyZoomState() {
-    switch( zoom_state ) {
+function applyViewState() {
+    switch( view_state ) {
         case 0:
             paper.attr({ viewBox: "-1500 -1500 3000 1500"});
-            document.querySelector(".hint-actions .key-z").classList.add("selected");
+            document.querySelector(".hint-actions .key-v").classList.add("selected");
         break;
 
         case 1:
             paper.attr({ viewBox: "-1500 -1500 3000 3000"});
-            document.querySelector(".hint-actions .key-z").classList.remove("selected");
+            document.querySelector(".hint-actions .key-v").classList.remove("selected");
         break;
     }
 }
 
-function toggleZoomKey() {
-    zoom_state++;
-    if( zoom_state > 1 ) zoom_state = 0;
-    applyZoomState();
+function toggleViewKey() {
+    view_state++;
+    if( view_state > 1 ) view_state = 0;
+    applyViewState();
 
-    localStorage.setItem(storage_zoom_key, zoom_state.toString());
+    localStorage.setItem(storage_zoom_key, view_state.toString());
 }
 
 function setRotationKeyLeft(value) {
@@ -1174,17 +1425,12 @@ function setRotationKeyRight(value) {
 function clearKeys() {
     setRotationKeyLeft(false);
     setRotationKeyRight(false);
-    // is_left = false;
-    // is_right = false;
-
-    // document.querySelector(".hint-rotate .key-a").classList.remove("selected");
-    // document.querySelector(".hint-rotate .key-d").classList.remove("selected");
 }
 
 // If you alt-tab / click away, you might never see keyup:
 window.addEventListener("blur", clearKeys);
 
-// If the tab gets backgrounded/foregrounded:aa
+// If the tab gets backgrounded/foregrounded:
 document.addEventListener("visibilitychange", () => {
     if( document.hidden ) clearKeys();
 });

@@ -18,7 +18,7 @@
     <div class="content">
         <div class="overlay overlay-left" id="tip_left"></div>
         <div class="overlay overlay-right" id="tip_right">
-            <select id="image_index">
+            <select id="image_index" title="Switch image slots with Alt+1 through Alt+8">
                 <option value="0" selected>image_0</option>
                 <option value="1">image_1</option>
                 <option value="2">image_2</option>
@@ -44,7 +44,7 @@
                 <kbd class="key kbd pressable active place">place</kbd>
             </div>
         </div>-->
-        <div class="toolbar">
+        <div class="toolbar noselect">
             <div class="hint hint-rotate">
                 <span>rotate</span>
                 <kbd class="key kbd pressable active key-a">A</kbd>
@@ -66,8 +66,14 @@
             </div>
 
             <div class="hint hint-actions">
-                <span>zoom</span>
-                <kbd class="key kbd pressable active key-z selected">Z</kbd>
+                <span>view</span>
+                <kbd class="key kbd pressable active key-v selected">V</kbd>
+            </div>
+
+            <div class="hint hint-history">
+                <span>history</span>
+                <kbd class="key kbd pressable key-undo disabled" title="Undo (Ctrl+Z)" aria-disabled="true"><span class="ctrl">ctrl</span>Z</kbd>
+                <kbd class="key kbd pressable key-redo disabled" title="Redo (Ctrl+Y or Ctrl+Shift+Z)" aria-disabled="true"><span class="ctrl">ctrl</span>Y</kbd>
             </div>
         </div>
     </div>
