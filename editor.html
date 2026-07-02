@@ -7,6 +7,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />        
     <link rel="stylesheet" type="text/css" href="editor.css" />
     <script src="snap.svg-min.js"></script>
+    <script src="font-spleen-5x8.js"></script>
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -29,12 +30,20 @@
             </select>
             <button id="load">load</button>
             <button id="save">save</button>
-            <button id="new">new</button>
+            <button id="new">clear</button>
             <button id="copy">&#10697; copy</button>
             <button id="copy_all">&#10697; copy all</button>
+            <button id="clear_all">reset</button>
             <textarea readonly id="output"></textarea>
         </div>
         <svg id="svg" class="noselect"></svg>
+        <!--<div class="toolbar toolbar-text">
+            <div class="hint hint-write">
+                <span>write</span>
+                <input type="text" id="write" autocomplete="off" spellcheck="false" />
+                <kbd class="key kbd pressable active place">place</kbd>
+            </div>
+        </div>-->
         <div class="toolbar">
             <div class="hint hint-rotate">
                 <span>rotate</span>

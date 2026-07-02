@@ -88,34 +88,204 @@ function load_pixel_array(this_pixel_array) {
     }
 }
 
-function load_output() {
-    const image_index = document.querySelector("#image_index").value;
-    const key = "sabre-" + image_index;
+// returns a list of pixel differences, if any
+function compare_pixel_array(pixel_array1, pixel_array2) {
+    let differences = [];
+    for( let i = 0; i < pixel_array1.length; i++ ) {
+        if( pixel_array1[i] !== pixel_array2[i] ) {
+            differences.push( i );
+        }
+    }
+    return( differences );
+}
 
-    if( localStorage.getItem(key) === null ) {
-        alert( "nothing saved in localStorage " + key );
-        return;
+const storage_prefix = "sabre-";
+const storage_backup_counter_key = "textsabre-backup-counter";
+const storage_backup_version = 1;
+const storage_color_key = "sabre-current-color";
+const storage_rotation_key = "sabre-rotation";
+const storage_zoom_key = "sabre-zoom";
+
+const image_slot_content_mark = " ●";
+
+function get_current_image_index() {
+    return( document.querySelector("#image_index").value );
+}
+
+function get_storage_key(image_index) {
+    return( storage_prefix + image_index );
+}
+
+function blank_pixel_array() {
+    return( new Array(led_rows * led_columns).fill(-1) );
+}
+
+function valid_pixel_array(candidate) {
+    return(
+        Array.isArray(candidate) &&
+        candidate.length === led_rows * led_columns
+    );
+}
+
+function pixel_array_has_content(pixel_array) {
+    if( !valid_pixel_array(pixel_array) ) return( false );
+    return( pixel_array.some((pixel) => pixel !== -1) );
+}
+
+function localstorage_image_has_content(image_index) {
+    return( pixel_array_has_content(load_pixels_from_localstorage(image_index)) );
+}
+
+function update_image_index_markers() {
+    const select = document.querySelector("#image_index");
+    if( !select ) return;
+
+    Array.from(select.options).forEach((option) => {
+        const has_content = localstorage_image_has_content(option.value);
+        option.textContent = "image_" + option.value + (has_content ? image_slot_content_mark : "");
+        option.classList.toggle("has-content", has_content);
+    });
+}
+
+function load_pixels_from_localstorage(image_index) {
+    const key = get_storage_key(image_index);
+    const saved = localStorage.getItem(key);
+
+    if( saved === null ) {
+        return( blank_pixel_array() );
     }
 
-    pixels = JSON.parse(localStorage.getItem(key));
-    load_pixel_array( pixels );
-    rotation = 0;
-    main.transform("r" + rotation + ",0,0");
+    try {
+        const parsed = JSON.parse(saved);
+        if( valid_pixel_array(parsed) ) {
+            return( parsed );
+        }
+    } catch(err) {
+        console.warn("Could not parse localStorage " + key, err);
+    }
 
+    return( blank_pixel_array() );
+}
+
+function save_pixels_to_localstorage(image_index, pixel_array) {
+    const key = get_storage_key(image_index);
+    localStorage.setItem(key, JSON.stringify(pixel_array));
+}
+
+function autosave_current_image() {
+    save_pixels_to_localstorage(get_current_image_index(), pixels);
+    update_image_index_markers();
+}
+
+function load_current_image_from_localstorage() {
+    pixels = load_pixels_from_localstorage(get_current_image_index());
+    load_pixel_array( pixels );
+    main.transform("r" + rotation + ",0,0");
     update_output_code();
+    update_image_index_markers();
+}
+
+function get_next_backup_number() {
+    const current = parseInt(localStorage.getItem(storage_backup_counter_key) || "0", 10);
+    const next = Number.isFinite(current) ? current + 1 : 1;
+    localStorage.setItem(storage_backup_counter_key, next.toString());
+    return( next );
+}
+
+function get_textsabre_backup() {
+    autosave_current_image();
+
+    const backup = {
+        app: "textsabre",
+        version: storage_backup_version,
+        saved_at: new Date().toISOString(),
+        led_rows: led_rows,
+        led_columns: led_columns,
+        selected_image_index: get_current_image_index(),
+        editor_state: {
+            current_color: current_color,
+            zoom_state: zoom_state,
+            rotation: rotation
+        },
+        images: {}
+    };
+
+    for( let i = 0; i < 8; i++ ) {
+        backup.images[i] = load_pixels_from_localstorage(i);
+    }
+
+    return( backup );
+}
+
+function download_text_file(filename, text) {
+    const blob = new Blob([text], { type: "text/plain;charset=utf-8" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = filename;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
 }
 
 function save_output() {
-    const image_index = document.querySelector("#image_index").value;
-    const key = "sabre-" + image_index;
+    const backup_number = get_next_backup_number();
+    const filename = "textsabre" + backup_number.toString().padStart(2, "0") + ".txt";
+    const backup = get_textsabre_backup();
+    download_text_file(filename, JSON.stringify(backup, null, 2));
+}
 
-    if( localStorage.getItem(key) !== null ) {
-        const user_choice = confirm("Overwrite localStorage " + key + " ?");
-        if( user_choice === false ) return;
-    }
+function load_output() {
+    const input = document.createElement("input");
+    input.type = "file";
+    input.accept = ".txt,application/json,text/plain";
 
-    // save now
-    localStorage.setItem(key, JSON.stringify(pixels));
+    input.addEventListener("change", (e) => {
+        const file = e.target.files[0];
+        if( !file ) return;
+
+        const reader = new FileReader();
+        reader.addEventListener("load", () => {
+            try {
+                const backup = JSON.parse(reader.result);
+
+                if( backup.app !== "textsabre" || typeof backup.images !== "object" ) {
+                    alert("This does not look like a textsabre save file.");
+                    return;
+                }
+
+                for( let i = 0; i < 8; i++ ) {
+                    const image = backup.images[i];
+                    if( valid_pixel_array(image) ) {
+                        save_pixels_to_localstorage(i, image);
+                    }
+                }
+
+                if( typeof backup.selected_image_index !== "undefined" ) {
+                    const select = document.querySelector("#image_index");
+                    select.value = backup.selected_image_index.toString();
+                }
+
+                if( backup.editor_state && typeof backup.editor_state === "object" ) {
+                    restore_editor_state(backup.editor_state);
+                    select_color(current_color);
+                    applyZoomState();
+                    applyRotationState();
+                    save_editor_state_to_localstorage();
+                }
+
+                load_current_image_from_localstorage();
+            } catch(err) {
+                console.error(err);
+                alert("Could not load that textsabre file.");
+            }
+        });
+
+        reader.readAsText(file);
+    });
+
+    input.click();
 }
 
 // old:
@@ -271,6 +441,51 @@ function update_output_code() {
     document.querySelector("#output").innerHTML += image.code;
 }
 
+function clamp_number(value, min, max, fallback) {
+    const parsed = Number(value);
+    if( Number.isFinite(parsed) && parsed >= min && parsed <= max ) {
+        return( parsed );
+    }
+    return( fallback );
+}
+
+function restore_editor_state(state) {
+    if( typeof state.current_color !== "undefined" ) {
+        current_color = clamp_number(state.current_color, 0, 9, current_color);
+    }
+
+    if( typeof state.zoom_state !== "undefined" ) {
+        zoom_state = clamp_number(state.zoom_state, 0, 1, zoom_state);
+    }
+
+    if( typeof state.rotation !== "undefined" ) {
+        rotation = clamp_number(state.rotation, -360000, 360000, rotation);
+        prev_rotation = rotation;
+    }
+}
+
+function load_editor_state_from_localstorage() {
+    restore_editor_state({
+        current_color: localStorage.getItem(storage_color_key),
+        zoom_state: localStorage.getItem(storage_zoom_key),
+        rotation: localStorage.getItem(storage_rotation_key)
+    });
+}
+
+function save_editor_state_to_localstorage() {
+    localStorage.setItem(storage_color_key, current_color.toString());
+    localStorage.setItem(storage_zoom_key, zoom_state.toString());
+    localStorage.setItem(storage_rotation_key, rotation.toString());
+}
+
+function save_rotation_to_localstorage() {
+    localStorage.setItem(storage_rotation_key, rotation.toString());
+}
+
+function applyRotationState() {
+    main.transform("r" + rotation + ",0,0");
+}
+
 
 // #region INIT
 
@@ -290,14 +505,12 @@ paper.attr({ viewBox: "-1500 -1500 3000 1500"});
 paper.circle(0, 0, 1375).attr({ class: 'area' });
 
 document.addEventListener("DOMContentLoaded", (e) => {
+    load_editor_state_from_localstorage();
     select_color( current_color );
     button_click_events();
-    update_output_code();
-
-    if( localStorage.getItem("sabre-zoom") !== null ) {
-        zoom_state = JSON.parse(localStorage.getItem("sabre-zoom"));
-        applyZoomState();
-    }
+    applyZoomState();
+    applyRotationState();
+    load_current_image_from_localstorage();
 
     // standardized visual effect acknowledging a click
     document.querySelectorAll("button").forEach( (button) => {
@@ -315,6 +528,14 @@ document.addEventListener("DOMContentLoaded", (e) => {
 
     document.querySelector("button#copy_all").addEventListener("click", (e) => {
         copy_output(get_all_images_arduino_code());
+    });
+
+    document.querySelector("button#clear_all").addEventListener("click", (e) => {
+        action_clear_all();
+    });
+
+    document.querySelector("#image_index").addEventListener("change", (e) => {
+        load_current_image_from_localstorage();
     });
 
     document.querySelector("button#save").addEventListener("click", (e) => {
@@ -612,6 +833,8 @@ function evaluate_click(g_pixel) {
         set_pixel(c, y, -1);
     }
 
+    // localStorage is the live working copy now; every painted/erased pixel lands here immediately.
+    autosave_current_image();
 }
 
 // determines whether we're erasing or painting
@@ -804,11 +1027,52 @@ function copy_output(text) {
 
 // #region ACTIONS
 function action_new() {
-    rotation = 0;
-    main.transform("r" + rotation + ",0,0");
-    pixels = new Array(led_rows * led_columns).fill(-1);
+    if( !confirm("clear image slot # " + get_current_image_index() + " ? this will immediately update localStorage." ) ) {
+        return;
+    }
+
+    pixels = blank_pixel_array();
     load_pixel_array(pixels);
     update_output_code();
+    autosave_current_image();
+}
+
+function action_clear_all() {
+    if( !confirm("clear all 8 image slots? this will immediately update localStorage." ) ) {
+        return;
+    }
+
+    const blank_image = blank_pixel_array();
+
+    for( let i = 0; i < 8; i++ ) {
+        save_pixels_to_localstorage(i, blank_image);
+    }
+
+    document.querySelector("#image_index").value = "0";
+
+    pixels = blank_pixel_array();
+    load_pixel_array(pixels);
+    reset_editor_tools_to_defaults();
+    update_output_code();
+
+    update_image_index_markers();
+}
+
+function reset_editor_tools_to_defaults() {
+    current_color = 0;
+    zoom_state = 0;
+    rotation = 0;
+    prev_rotation = 0;
+    is_left = false;
+    is_right = false;
+
+    select_color(current_color);
+    applyZoomState();
+    applyRotationState();
+    save_editor_state_to_localstorage();
+
+    document.querySelector(".hint-rotate .key-a").classList.remove("selected");
+    document.querySelector(".hint-rotate .key-d").classList.remove("selected");
 }
 // #endregion
 
@@ -816,13 +1080,16 @@ function action_new() {
 // #region KEYS
 
 function select_color(color_index) {
-    current_color = color_index;
+    current_color = clamp_number(color_index, 0, 9, 0);
 
     document.querySelectorAll(".hint-color kbd").forEach( (kbd, index) => {
         kbd.classList.remove("selected");
     });
 
-    document.querySelector(".hint-color .color" + current_color).classList.add("selected");
+    const selected_key = document.querySelector(".hint-color .color" + current_color);
+    if( selected_key ) selected_key.classList.add("selected");
+
+    localStorage.setItem(storage_color_key, current_color.toString());
 }
 
 document.addEventListener("keypress", function(k) {
@@ -856,6 +1123,7 @@ function do_rotation() {
 
     if( prev_rotation !== rotation ) {
         main.transform("r" + rotation + ",0,0");
+        save_rotation_to_localstorage();
     }
     requestAnimationFrame(do_rotation);
     prev_rotation = rotation;
@@ -882,7 +1150,7 @@ function toggleZoomKey() {
     if( zoom_state > 1 ) zoom_state = 0;
     applyZoomState();
 
-    localStorage.setItem("sabre-zoom", JSON.stringify(zoom_state));
+    localStorage.setItem(storage_zoom_key, zoom_state.toString());
 }
 
 function setRotationKeyLeft(value) {

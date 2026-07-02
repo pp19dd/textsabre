@@ -193,6 +193,25 @@ kbd.key.pressable {
 .mouseover-byte { stroke-width: 3px; stroke: var(--mouseover-byte); pointer-events: none; }
 .mouseover { stroke-width: 6px; stroke: var(--mouseover); pointer-events: none; }
 
+.dark { color: #444 }
+
+button#copy, button#copy_all, button#clear_all, button#save, button#load, #image_index { pointer-events: auto }
+
+.overlay-right * { font-size: 1.2rem; }
+.overlay-right {
+    width: 350px;
+    max-width: min(420px, calc(100vw - 24px));
+    display: grid;
+    grid-template-columns: minmax(0, 3fr) repeat(3, minmax(0, 1fr));
+    grid-template-rows: auto auto auto;
+    grid-column-gap: 10px;
+    grid-row-gap: 10px;
+    box-sizing: border-box;    
+}
+
+#copy { grid-column: 1 / span 1; pointer-events: auto }
+#copy_all { grid-column: 2 / span 2; pointer-events: auto }
+#clear_all { grid-column: 4 / span 1; pointer-events: auto }
 #output {
     /* display: none; */
     pointer-events: auto;
@@ -200,22 +219,11 @@ kbd.key.pressable {
     resize: vertical;
     height: 100px;
     background-color: #999;
+    grid-column: 1 / -1;
 }
 
-.dark { color: #444 }
-
-button#copy, button#save, button#load, #image_index { pointer-events: auto }
-
-.overlay-right * { font-size: 1.2rem; }
-.overlay-right {
-    display: grid;
-    grid-template-columns: 3fr repeat(3, 1fr);
-    grid-template-rows: repeat(2, 1fr);
-    grid-column-gap: 10px;
-    grid-row-gap: 10px;
-}
-
-#copy_all { grid-column: 2 / span 3; pointer-events: auto }
+#copy_all { grid-column: 2 / span 2; pointer-events: auto }
+#clear_all { grid-column: 4; pointer-events: auto }
 button { cursor: pointer }
 #new { pointer-events: auto }
 .byte-row { display: flex; justify-content: space-between; }
@@ -257,4 +265,7 @@ a { color: silver }
     mask-size: 5px 5px;
     font-size: 72px;
     margin:0; padding:0;
+}
+#image_index option.has-content {
+    font-weight: bold;
 }
