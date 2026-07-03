@@ -1486,7 +1486,7 @@ function font_default_height() {
  */
 function pixels_for_text(text, center_c, center_y) {
     const points = [];
-    const char_spacing = 1;
+    const char_spacing = 0;
     const total_height = font_default_height();
     const font = get_active_font_data();
 
