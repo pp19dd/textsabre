@@ -1342,6 +1342,7 @@ let tool_drag_start = null;
 let tool_drag_last = null;
 let tool_preview_pixels = [];
 let tool_preview_shape = null;
+let last_hover_point = null;
 
 // Keep these matched to the board construction/drawPixel() options.
 const tool_pixel_offset = 7;
@@ -2090,6 +2091,7 @@ function set_text_orientation(mode) {
     current_text_mode = mode === "radial" ? "radial" : "screen";
     sync_text_cycle_button_state();
     save_editor_state_to_localstorage();
+    refresh_text_preview();
 }
 
 function cycle_text_orientation() {
@@ -2103,6 +2105,7 @@ function set_text_font_size(index) {
     current_font_index = normalizedIndex;
     sync_text_cycle_button_state();
     save_editor_state_to_localstorage();
+    refresh_text_preview();
 }
 
 function cycle_text_font_size() {
@@ -2195,10 +2198,42 @@ function begin_tool_drag(point, shiftKey) {
     }
 }
 
+function point_for_text_preview(e) {
+    const point = pixel_from_event_target(e.target);
+    if( point !== null ) return point;
+
+    if( active_tool !== "text" ) return null;
+
+    const board_point = board_point_from_mouse_event(e);
+    if( !board_point ) return null;
+
+    return nearest_pixel_from_xy(board_point.x, board_point.y);
+}
+
+function refresh_text_preview() {
+    if( active_tool !== "text" ) return;
+
+    if( current_text_string.trim() === "" || is_painting || is_erasing ) {
+        clear_tool_preview();
+        return;
+    }
+
+    if( last_hover_point ) {
+        show_tool_preview(pixels_for_tool_at(last_hover_point));
+    } else {
+        clear_tool_preview();
+    }
+}
+
 function show_text_hover_preview(point) {
     if( active_tool !== "text" ) return;
-    if( current_text_string.trim() === "" ) return;
-    if( is_painting || is_erasing ) return;
+
+    last_hover_point = point || null;
+
+    if( current_text_string.trim() === "" || is_painting || is_erasing || !point ) {
+        clear_tool_preview();
+        return;
+    }
 
     show_tool_preview(pixels_for_tool_at(point));
 }
@@ -2272,8 +2307,11 @@ paper.mousedown(function(e) {
 });
 
 paper.mousemove(function(e) {
-    const point = pixel_from_event_target(e.target);
-    if( point === null ) return;
+    const point = point_for_text_preview(e);
+    if( point === null ) {
+        show_text_hover_preview(null);
+        return;
+    }
 
     show_text_hover_preview(point);
 });
@@ -2287,7 +2325,7 @@ window.addEventListener("mouseup", (e) => {
 });
 
 paper.mouseover(function(e) {
-    const point = show_hover_state(e);
+    const point = show_hover_state(e) || point_for_text_preview(e);
     if( point === null ) return;
 
     show_text_hover_preview(point);
