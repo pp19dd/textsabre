@@ -770,7 +770,7 @@ function restore_editor_state(state) {
     }
 
     if( typeof state.text_mode !== "undefined" ) {
-        current_text_mode = state.text_mode === "radial" ? "radial" : "screen";
+        current_text_mode = normalize_text_mode(state.text_mode, current_text_mode);
     }
 
     if( typeof state.text_font !== "undefined" ) {
@@ -969,25 +969,30 @@ document.addEventListener("DOMContentLoaded", (e) => {
     });
 
     paper.node.addEventListener("mousedown", function(e) {
-        if(
-            active_tool !== "line" &&
-            active_tool !== "circle" &&
-            active_tool !== "disc"
-        ) return;
+        const can_start_from_blank_svg =
+            active_tool === "line" ||
+            active_tool === "circle" ||
+            active_tool === "disc" ||
+            (active_tool === "text" && text_mode_is_screen(current_text_mode));
+
+        if( !can_start_from_blank_svg ) return;
 
         // Normal pixel mousedown already handles this.
         if( e.target && e.target.classList && e.target.classList.contains("pixel-hit") ) return;
 
         const p = board_point_from_mouse_event(e);
 
-        if( !point_is_in_center_deadzone(p) ) return;
+        if( active_tool !== "text" && !point_is_in_center_deadzone(p) ) return;
 
         e.preventDefault();
 
+        if( active_tool === "text" ) {
+            begin_tool_drag({ x: p.x, y: p.y }, e.shiftKey);
+            return;
+        }
+
         begin_undoable_pixel_edit();
 
-        // I would make deadzone starts draw, not toggle erase.
-        // There is no pixel there to infer erase from.
         is_painting = !e.shiftKey;
         is_erasing = e.shiftKey;
 
@@ -1146,7 +1151,7 @@ function button_click_events() {
         textButton.addEventListener("cycle", (e) => {
             if( suppress_text_cycle_sync ) return;
             if( e.detail && e.detail.sectionId === "orientation" ) {
-                set_text_orientation(e.detail.active === 0 ? "screen" : "radial");
+                set_text_orientation(text_mode_from_index(e.detail.active));
             } else if( e.detail && e.detail.sectionId === "font-size" ) {
                 set_text_font_size(e.detail.active);
             }
@@ -1378,6 +1383,36 @@ function pixel_r_inner(y) {
     return(tool_inner_margin + (y + tool_pixel_offset) * (tool_pixel_len + tool_pixel_gap));
 }
 
+function pixel_from_xy_if_on_board(x, y) {
+    const step = tool_pixel_len + tool_pixel_gap;
+    const r = Math.sqrt((x * x) + (y * y));
+
+    const first_center_r = pixel_r_inner(0) + (tool_pixel_len / 2);
+    const last_center_r = pixel_r_inner(led_rows - 1) + (tool_pixel_len / 2);
+
+    const inner_limit = pixel_r_inner(0);
+    const outer_limit = pixel_r_inner(led_rows - 1) + tool_pixel_len;
+
+    if( r < inner_limit || r > outer_limit ) {
+        return null;
+    }
+
+    const py = Math.round((r - first_center_r) / step);
+    if( py < 0 || py >= led_rows ) {
+        return null;
+    }
+
+    let theta = Math.atan2(y, x) - (-Math.PI / 2);
+    theta = (theta % (2 * Math.PI) + (2 * Math.PI)) % (2 * Math.PI);
+
+    const c = Math.round(theta / ((2 * Math.PI) / led_columns));
+
+    return({
+        c: normalized_c(c),
+        y: py
+    });
+}
+
 function nearest_pixel_from_xy(x, y) {
     let best = null;
     let best_dist = Infinity;
@@ -1452,8 +1487,63 @@ function shortest_column_delta(c1, c2) {
 
 // Global state for the text tool
 let current_text_string = "";
-let current_text_mode = "radial"; // "radial" or "screen"
+let current_text_mode = "radial"; // "radial" | "radial-upside-down" | "screen" | "screen-upside-down"
 let current_font_index = 0;
+
+function normalize_text_mode(mode, fallback) {
+    if( mode === "radial" || mode === "radial-upside-down" || mode === "screen" || mode === "screen-upside-down" ) {
+        return( mode );
+    }
+    return( fallback || "radial" );
+}
+
+function text_mode_is_screen(mode) {
+    const normalized = normalize_text_mode(mode, "radial");
+    return( normalized === "screen" || normalized === "screen-upside-down" );
+}
+
+function text_mode_is_upside_down(mode) {
+    const normalized = normalize_text_mode(mode, "radial");
+    return( normalized === "radial-upside-down" || normalized === "screen-upside-down" );
+}
+
+function text_mode_label(mode) {
+    switch( normalize_text_mode(mode, "radial") ) {
+        case "radial-upside-down": return "Radial upside down";
+        case "screen": return "Screen";
+        case "screen-upside-down": return "Screen upside down";
+        default: return "Radial";
+    }
+}
+
+function text_mode_to_index(mode) {
+    switch( normalize_text_mode(mode, "radial") ) {
+        case "radial-upside-down": return 1;
+        case "screen": return 2;
+        case "screen-upside-down": return 3;
+        default: return 0;
+    }
+}
+
+function text_mode_from_index(index) {
+    switch( (index % 4 + 4) % 4 ) {
+        case 1: return "radial-upside-down";
+        case 2: return "screen";
+        case 3: return "screen-upside-down";
+        default: return "radial";
+    }
+}
+
+function apply_text_orientation(points, center_c, center_y, mode) {
+    if( !text_mode_is_upside_down(mode) ) {
+        return( unique_pixels(points) );
+    }
+
+    return( unique_pixels(points.map((point) => ({
+        c: (center_c * 2) - point.c,
+        y: (center_y * 2) - point.y
+    }))) );
+}
 
 function get_active_font_data() {
     const fonts = [myfont001, myfont002, myfont003];
@@ -1525,10 +1615,10 @@ function pixels_for_text(text, center_c, center_y) {
         current_dc += char_width + char_spacing;
     }
 
-    return unique_pixels(points);
+    return apply_text_orientation(points, center_c, center_y, current_text_mode);
 }
 
-function pixels_for_screen_text(text, center_c, center_y) {
+function pixels_for_screen_text(text, anchor_or_c, maybe_y) {
     const points = [];
     const char_spacing = 1;
     const total_height = font_default_height();
@@ -1541,15 +1631,20 @@ function pixels_for_screen_text(text, center_c, center_y) {
         if( i < text.length - 1 ) total_width += char_spacing;
     }
 
-    const center = pixel_center_xy(center_c, center_y);
+    const center = (
+        typeof anchor_or_c === "object"
+            ? tool_point_xy(anchor_or_c)
+            : pixel_center_xy(anchor_or_c, maybe_y)
+    );
+
     const step = tool_pixel_len + tool_pixel_gap;
 
-    // Text is laid out in screen-space offsets, then counter-rotated into board-space.
-    // Since `main` is later rotated by `rotation`, this keeps the stamped text
-    // visually horizontal on screen.
+    // main is rotated by `rotation`; counter-rotate the text offsets so the
+    // final visible result stays horizontal on screen.
     const angle = -rotation * Math.PI / 180;
     const cos = Math.cos(angle);
     const sin = Math.sin(angle);
+    const screen_upside_down = text_mode_is_upside_down(current_text_mode);
 
     const start_dx = -((total_width - 1) * step / 2);
     const start_dy = -((total_height - 1) * step / 2);
@@ -1569,10 +1664,13 @@ function pixels_for_screen_text(text, center_c, center_y) {
                         const dx = start_dx + ((current_dx + col) * step);
                         const dy = start_dy + (row * step);
 
-                        const x = center.x + (dx * cos) - (dy * sin);
-                        const y = center.y + (dx * sin) + (dy * cos);
+                        const signed_dx = screen_upside_down ? -dx : dx;
+                        const signed_dy = screen_upside_down ? -dy : dy;
 
-                        const pixel = nearest_pixel_from_xy(x, y);
+                        const x = center.x + (signed_dx * cos) - (signed_dy * sin);
+                        const y = center.y + (signed_dx * sin) + (signed_dy * cos);
+
+                        const pixel = pixel_from_xy_if_on_board(x, y);
                         if( pixel ) points.push(pixel);
                     }
                 }
@@ -1845,8 +1943,8 @@ function thick_segment_intersects_polygon(a, b, polygon, thickness) {
 
 function pixels_for_tool_at(point) {
     if( active_tool === "text" ) {
-        if( current_text_mode === "screen" ) {
-            return pixels_for_screen_text(current_text_string, point.c, point.y);
+        if( text_mode_is_screen(current_text_mode) ) {
+            return pixels_for_screen_text(current_text_string, point);
         }
 
         return pixels_for_text(current_text_string, point.c, point.y);
@@ -1858,8 +1956,8 @@ function pixels_for_tool_at(point) {
 
 function pixels_for_drag_tool(start, end) {
     if( active_tool === "text" ) {
-        if( current_text_mode === "screen" ) {
-            return pixels_for_screen_text(current_text_string, end.c, end.y);
+        if( text_mode_is_screen(current_text_mode) ) {
+            return pixels_for_screen_text(current_text_string, end);
         }
         return pixels_for_text(current_text_string, end.c, end.y);
     }
@@ -2059,16 +2157,16 @@ function sync_text_cycle_button_state() {
     if( !button ) return;
 
     suppress_text_cycle_sync = true;
-    button.setState && button.setState("orientation", current_text_mode === "radial" ? 1 : 0);
+    button.setState && button.setState("orientation", text_mode_to_index(current_text_mode));
     button.setState && button.setState("font-size", current_font_index);
     suppress_text_cycle_sync = false;
 
     if( button.setMainTitle ) {
-        button.setMainTitle("Text: " + (current_text_mode === "radial" ? "radial" : "screen") + " / " + get_font_title());
+        button.setMainTitle("Text: " + text_mode_label(current_text_mode) + " / " + get_font_title());
     }
 
     if( button.setSectionTitle ) {
-        button.setSectionTitle("orientation", current_text_mode === "radial" ? "Radial" : "Screen");
+        button.setSectionTitle("orientation", text_mode_label(current_text_mode));
         button.setSectionTitle("font-size", get_font_title());
     }
 }
@@ -2088,14 +2186,14 @@ function cycle_circle_mode() {
 }
 
 function set_text_orientation(mode) {
-    current_text_mode = mode === "radial" ? "radial" : "screen";
+    current_text_mode = normalize_text_mode(mode, current_text_mode);
     sync_text_cycle_button_state();
     save_editor_state_to_localstorage();
     refresh_text_preview();
 }
 
 function cycle_text_orientation() {
-    set_text_orientation(current_text_mode === "radial" ? "screen" : "radial");
+    set_text_orientation(text_mode_from_index(text_mode_to_index(current_text_mode) + 1));
 }
 
 function set_text_font_size(index) {
@@ -2175,7 +2273,18 @@ function finish_tool_drag() {
     commit_undoable_pixel_edit();
 }
 
+function clone_tool_point(point) {
+    if( typeof point.x === "number" && typeof point.y === "number" ) {
+        return({ x: point.x, y: point.y });
+    }
+
+    return({ c: point.c, y: point.y });
+}
+
 function begin_tool_drag(point, shiftKey) {
+    tool_drag_start = clone_tool_point(point);
+    tool_drag_last = clone_tool_point(point);
+
     begin_undoable_pixel_edit();
 
     if( shiftKey ) {
@@ -2207,7 +2316,11 @@ function point_for_text_preview(e) {
     const board_point = board_point_from_mouse_event(e);
     if( !board_point ) return null;
 
-    return nearest_pixel_from_xy(board_point.x, board_point.y);
+    if( text_mode_is_screen(current_text_mode) ) {
+        return({ x: board_point.x, y: board_point.y });
+    }
+
+    return pixel_from_xy_if_on_board(board_point.x, board_point.y);
 }
 
 function refresh_text_preview() {
@@ -2241,7 +2354,8 @@ function show_text_hover_preview(point) {
 function continue_tool_drag(point) {
     if( !is_painting && !is_erasing ) return;
 
-    tool_drag_last = { c: point.c, y: point.y };
+    // tool_drag_last = { c: point.c, y: point.y };
+    tool_drag_last = clone_tool_point(point);
 
     if( active_tool === "line" || active_tool === "circle" || active_tool === "disc" ) {
         show_tool_preview_shape(tool_drag_start, tool_drag_last);
