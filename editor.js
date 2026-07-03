@@ -16,6 +16,10 @@
 //      required library: FastGPIO by Pololu version 2.2.0
 //      required library: APA102 by Pololu version 3.0.0
 // ---------------------------------------------------------------------------
+// brunt of this project was my stubborn and opinionated code creation,
+// with LLM assist for annoying implementations and later bug hunting.
+// used gemini, chatgpt, copilot.  and lots of cursing.
+// ---------------------------------------------------------------------------
 
 const led_rows      = 32;
 const led_columns   = 144;
@@ -106,6 +110,11 @@ const storage_color_key = "sabre-current-color";
 const storage_rotation_key = "sabre-rotation";
 const storage_zoom_key = "sabre-zoom";
 const storage_history_key = "sabre-undo-history";
+const storage_tool_key = "sabre-active-tool";
+const storage_paint_level_key = "sabre-paint-level";
+const storage_circle_mode_key = "sabre-circle-mode";
+const storage_text_mode_key = "sabre-text-mode";
+const storage_text_font_key = "sabre-text-font";
 
 // Undo stores full image snapshots, one entry per completed paint/erase gesture.
 // Bump this up/down as desired; memory use is roughly rows * columns * steps integers.
@@ -705,6 +714,36 @@ function clamp_number(value, min, max, fallback) {
     return( fallback );
 }
 
+const paint_level_tools = {
+    1: "draw",
+    2: "cluster3",
+    3: "cluster5"
+};
+
+function is_paint_level_tool(tool_name) {
+    return(
+        tool_name === "draw" ||
+        tool_name === "cluster3" ||
+        tool_name === "cluster5"
+    );
+}
+
+function paint_level_for_tool(tool_name) {
+    if( tool_name === "cluster3" ) return( 2 );
+    if( tool_name === "cluster5" ) return( 3 );
+    return( 1 );
+}
+
+function tool_for_paint_level(level) {
+    return( paint_level_tools[level] || "draw" );
+}
+
+function normalize_tool_name(tool_name, fallback) {
+    const allowed = ["draw", "cluster3", "cluster5", "line", "circle", "disc", "text"];
+    if( allowed.includes(tool_name) ) return( tool_name );
+    return( fallback || "draw" );
+}
+
 function restore_editor_state(state) {
     if( typeof state.current_color !== "undefined" ) {
         current_color = clamp_number(state.current_color, 0, 9, current_color);
@@ -720,13 +759,44 @@ function restore_editor_state(state) {
         rotation = clamp_number(state.rotation, -360000, 360000, rotation);
         prev_rotation = rotation;
     }
+
+    if( typeof state.paint_level !== "undefined" ) {
+        paint_level = clamp_number(state.paint_level, 1, 3, paint_level);
+    }
+
+    if( typeof state.circle_mode !== "undefined" ) {
+        current_circle_mode = state.circle_mode === "filled" ? "filled" : "outline";
+    }
+
+    if( typeof state.text_mode !== "undefined" ) {
+        current_text_mode = state.text_mode === "radial" ? "radial" : "screen";
+    }
+
+    if( typeof state.text_font !== "undefined" ) {
+        current_font_index = clamp_number(state.text_font, 0, 2, current_font_index);
+    }
+
+    if( typeof state.active_tool !== "undefined" ) {
+        active_tool = normalize_tool_name(state.active_tool, active_tool);
+
+        if( is_paint_level_tool(active_tool) ) {
+            paint_level = paint_level_for_tool(active_tool);
+        }
+    } else {
+        active_tool = tool_for_paint_level(paint_level);
+    }
 }
 
 function load_editor_state_from_localstorage() {
     restore_editor_state({
         current_color: localStorage.getItem(storage_color_key),
         view_state: localStorage.getItem(storage_zoom_key),
-        rotation: localStorage.getItem(storage_rotation_key)
+        rotation: localStorage.getItem(storage_rotation_key),
+        active_tool: localStorage.getItem(storage_tool_key),
+        paint_level: localStorage.getItem(storage_paint_level_key),
+        circle_mode: localStorage.getItem(storage_circle_mode_key),
+        text_mode: localStorage.getItem(storage_text_mode_key),
+        text_font: localStorage.getItem(storage_text_font_key)
     });
 }
 
@@ -734,6 +804,11 @@ function save_editor_state_to_localstorage() {
     localStorage.setItem(storage_color_key, current_color.toString());
     localStorage.setItem(storage_zoom_key, view_state.toString());
     localStorage.setItem(storage_rotation_key, rotation.toString());
+    localStorage.setItem(storage_tool_key, active_tool.toString());
+    localStorage.setItem(storage_paint_level_key, paint_level.toString());
+    localStorage.setItem(storage_circle_mode_key, current_circle_mode);
+    localStorage.setItem(storage_text_mode_key, current_text_mode);
+    localStorage.setItem(storage_text_font_key, current_font_index.toString());
 }
 
 function save_rotation_to_localstorage() {
@@ -753,6 +828,11 @@ let is_left = false;
 let is_right = false;
 let current_color = 0;
 let view_state = 0;
+let paint_level = 1;
+let current_circle_mode = "outline";
+let suppress_pixel_cycle_sync = false;
+let suppress_circle_cycle_sync = false;
+let suppress_text_cycle_sync = false;
 
 // from raphaeljs days
 Snap.plugin(function(Snap, Element) {
@@ -770,6 +850,8 @@ document.addEventListener("DOMContentLoaded", (e) => {
     load_editor_state_from_localstorage();
     select_color( current_color );
     button_click_events();
+    update_paint_level_button();
+    select_tool(active_tool);
     applyViewState();
     applyRotationState();
     active_image_index = document.querySelector("#image_index").value;
@@ -874,7 +956,8 @@ document.addEventListener("DOMContentLoaded", (e) => {
         if(
             active_tool !== "line" &&
             active_tool !== "circle" &&
-            active_tool !== "disc"
+            active_tool !== "disc" &&
+            active_tool !== "text"
         ) return;
         if( tool_drag_start === null ) return;
 
@@ -891,6 +974,21 @@ document.addEventListener("DOMContentLoaded", (e) => {
         show_tool_preview(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
     });
 
+    function write_handler(e) {
+        current_text_string = e.target.value;
+        
+        // unfocus when enter hit 
+        if( e.type === "keydown" && e.key === "Enter" ) {
+            e.preventDefault();
+            e.target.blur();
+        }
+    }
+
+    // can type while mouseovering and stamping the text
+    document.querySelector("#write").addEventListener("input", write_handler);
+    document.querySelector("#write").addEventListener("keydown", write_handler);
+    document.querySelector("#write").addEventListener("keyup", write_handler);
+    document.querySelector("#write").addEventListener("change", write_handler);
 });
 
 function button_click_events() {
@@ -923,29 +1021,89 @@ function button_click_events() {
         toggleViewKey();
     });
 
-    document.querySelector(".hint-tools .tool-draw").addEventListener("click", (e) => {
-        select_tool("draw");
-    });
+    const pixelButton = document.getElementById("pixel-btn");
+    if( pixelButton ) {
+        pixelButton.addEventListener("click", (e) => {
+            if( e.target && e.target.closest && e.target.closest(".level-dots") ) return;
+            click_paint_level_tool();
+        });
 
-    document.querySelector(".hint-tools .tool-cluster3").addEventListener("click", (e) => {
-        select_tool("cluster3");
-    });
+        pixelButton.addEventListener("cycle", (e) => {
+            if( suppress_pixel_cycle_sync ) return;
+            if( e.detail && e.detail.sectionId === "weight" ) {
+                set_paint_level(e.detail.active + 1, true);
+            }
+        });
+    }
 
-    document.querySelector(".hint-tools .tool-cluster5").addEventListener("click", (e) => {
-        select_tool("cluster5");
-    });
+    const lineButton = document.querySelector(".hint-tools .tool-line");
+    if( lineButton ) {
+        lineButton.addEventListener("click", (e) => {
+            select_tool("line");
+        });
+    }
 
-    document.querySelector(".hint-tools .tool-line").addEventListener("click", (e) => {
-        select_tool("line");
-    });
+    // Legacy direct wiring for circle/text buttons is no longer needed; the reusable
+    // cycle-button component now owns those interactions.
+    // document.querySelector(".hint-tools .tool-circle").addEventListener("click", (e) => {
+    //     select_tool("circle");
+    // });
+    // document.querySelector(".hint-tools .tool-disc").addEventListener("click", (e) => {
+    //     select_tool("disc");
+    // });
+    // document.querySelector(".hint-tools .tool-text").addEventListener("click", (e) => {
+    //     const input = document.querySelector("#write").value;
+    //     if( input !== null && input.trim() !== "" ) {
+    //         current_text_string = input;
+    //         select_tool("text");
+    //     }
+    // });
 
-    document.querySelector(".hint-tools .tool-circle").addEventListener("click", (e) => {
-        select_tool("circle");
-    });
+    const circleButton = document.getElementById("circle-btn");
+    if( circleButton ) {
+        circleButton.addEventListener("click", (e) => {
+            if( e.target && e.target.closest && e.target.closest(".level-dots") ) return;
+            if( active_tool === "circle" || active_tool === "disc" ) {
+                cycle_circle_mode();
+            } else {
+                const nextTool = current_circle_mode === "filled" ? "disc" : "circle";
+                select_tool(nextTool);
+            }
+        });
 
-    document.querySelector(".hint-tools .tool-disc").addEventListener("click", (e) => {
-        select_tool("disc");
-    });
+        circleButton.addEventListener("cycle", (e) => {
+            if( suppress_circle_cycle_sync ) return;
+            if( e.detail && e.detail.sectionId === "weight" ) {
+                cycle_circle_mode();
+            }
+        });
+    }
+
+    const textButton = document.getElementById("text-btn");
+    if( textButton ) {
+        textButton.addEventListener("click", (e) => {
+            if( e.target && e.target.closest && e.target.closest(".level-dots") ) return;
+            const input = document.querySelector("#write").value;
+            if( input !== null && input.trim() !== "" ) {
+                current_text_string = input;
+            }
+
+            if( active_tool === "text" ) {
+                cycle_text_orientation();
+            } else {
+                select_tool("text");
+            }
+        });
+
+        textButton.addEventListener("cycle", (e) => {
+            if( suppress_text_cycle_sync ) return;
+            if( e.detail && e.detail.sectionId === "orientation" ) {
+                set_text_orientation(e.detail.active === 0 ? "screen" : "radial");
+            } else if( e.detail && e.detail.sectionId === "font-size" ) {
+                set_text_font_size(e.detail.active);
+            }
+        });
+    }
 }
 
 // #endregion
@@ -1171,6 +1329,27 @@ function pixel_r_inner(y) {
     return(tool_inner_margin + (y + tool_pixel_offset) * (tool_pixel_len + tool_pixel_gap));
 }
 
+function nearest_pixel_from_xy(x, y) {
+    let best = null;
+    let best_dist = Infinity;
+
+    for( let c = 0; c < led_columns; c++ ) {
+        for( let py = 0; py < led_rows; py++ ) {
+            const center = pixel_center_xy(c, py);
+            const dx = center.x - x;
+            const dy = center.y - y;
+            const dist = (dx * dx) + (dy * dy);
+
+            if( dist < best_dist ) {
+                best_dist = dist;
+                best = { c: c, y: py };
+            }
+        }
+    }
+
+    return best;
+}
+
 function pixel_center_xy(c, y) {
     const theta = pixel_theta(c);
     const r = pixel_r_inner(y) + (tool_pixel_len / 2);
@@ -1218,6 +1397,143 @@ function shortest_column_delta(c1, c2) {
     if( delta > led_columns / 2 ) delta -= led_columns;
     if( delta < -led_columns / 2 ) delta += led_columns;
     return( delta );
+}
+
+
+
+// Global state for the text tool
+let current_text_string = "";
+let current_text_mode = "radial"; // "radial" or "screen"
+let current_font_index = 0;
+
+function get_active_font_data() {
+    const fonts = [myfont001, myfont002, myfont003];
+    return fonts[current_font_index] || myfont001;
+}
+
+function font_bbox_for_char(charCode) {
+    const font = get_active_font_data();
+    return font.bbox[charCode] || [5, 8, 0, 0];
+}
+
+function font_width_for_char(charCode) {
+    return font_bbox_for_char(charCode)[0];
+}
+
+function font_height_for_char(charCode) {
+    return font_bbox_for_char(charCode)[1];
+}
+
+function font_default_height() {
+    const font = get_active_font_data();
+    const keys = Object.keys(font.bbox);
+    if( keys.length === 0 ) return 8;
+    return font.bbox[keys[0]][1];
+}
+
+/**
+ * Computes all pixel coordinates for a given text string centered at a target (c, y).
+ * Uses the Spleen 5x8 font grid.
+ */
+function pixels_for_text(text, center_c, center_y) {
+    const points = [];
+    const char_spacing = 1;
+    const total_height = font_default_height();
+    const font = get_active_font_data();
+
+    let total_width = 0;
+
+    for( let i = 0; i < text.length; i++ ) {
+        const charCode = text.charCodeAt(i).toString();
+        total_width += font_width_for_char(charCode);
+        if( i < text.length - 1 ) total_width += char_spacing;
+    }
+
+    const start_c = center_c - Math.floor(total_width / 2);
+    const start_y = center_y - Math.floor(total_height / 2);
+
+    let current_dc = 0;
+
+    for( let i = 0; i < text.length; i++ ) {
+        const charCode = text.charCodeAt(i).toString();
+        const font_data = font.pixels[charCode];
+        const char_width = font_width_for_char(charCode);
+        const char_height = font_height_for_char(charCode);
+
+        if( font_data ) {
+            for( let row = 0; row < char_height; row++ ) {
+                for( let col = 0; col < char_width; col++ ) {
+                    if( font_data[(row * char_width) + col] === "1" ) {
+                        points.push({
+                            c: normalized_c(start_c + current_dc + col),
+                            y: start_y + ((char_height - 1) - row)
+                        });
+                    }
+                }
+            }
+        }
+
+        current_dc += char_width + char_spacing;
+    }
+
+    return unique_pixels(points);
+}
+
+function pixels_for_screen_text(text, center_c, center_y) {
+    const points = [];
+    const char_spacing = 1;
+    const total_height = font_default_height();
+    const font = get_active_font_data();
+
+    let total_width = 0;
+    for( let i = 0; i < text.length; i++ ) {
+        const charCode = text.charCodeAt(i).toString();
+        total_width += font_width_for_char(charCode);
+        if( i < text.length - 1 ) total_width += char_spacing;
+    }
+
+    const center = pixel_center_xy(center_c, center_y);
+    const step = tool_pixel_len + tool_pixel_gap;
+
+    // Text is laid out in screen-space offsets, then counter-rotated into board-space.
+    // Since `main` is later rotated by `rotation`, this keeps the stamped text
+    // visually horizontal on screen.
+    const angle = -rotation * Math.PI / 180;
+    const cos = Math.cos(angle);
+    const sin = Math.sin(angle);
+
+    const start_dx = -((total_width - 1) * step / 2);
+    const start_dy = -((total_height - 1) * step / 2);
+
+    let current_dx = 0;
+
+    for( let i = 0; i < text.length; i++ ) {
+        const charCode = text.charCodeAt(i).toString();
+        const font_data = font.pixels[charCode];
+        const char_width = font_width_for_char(charCode);
+        const char_height = font_height_for_char(charCode);
+
+        if( font_data ) {
+            for( let row = 0; row < char_height; row++ ) {
+                for( let col = 0; col < char_width; col++ ) {
+                    if( font_data[(row * char_width) + col] === "1" ) {
+                        const dx = start_dx + ((current_dx + col) * step);
+                        const dy = start_dy + (row * step);
+
+                        const x = center.x + (dx * cos) - (dy * sin);
+                        const y = center.y + (dx * sin) + (dy * cos);
+
+                        const pixel = nearest_pixel_from_xy(x, y);
+                        if( pixel ) points.push(pixel);
+                    }
+                }
+            }
+        }
+
+        current_dx += char_width + char_spacing;
+    }
+
+    return unique_pixels(points);
 }
 
 function pixels_for_cluster(center, radius) {
@@ -1479,12 +1795,25 @@ function thick_segment_intersects_polygon(a, b, polygon, thickness) {
 }
 
 function pixels_for_tool_at(point) {
+    if( active_tool === "text" ) {
+        if( current_text_mode === "screen" ) {
+            return pixels_for_screen_text(current_text_string, point.c, point.y);
+        }
+
+        return pixels_for_text(current_text_string, point.c, point.y);
+    }
     if( active_tool === "cluster3" ) return( pixels_for_cluster(point, tool_cluster_radius_3) );
     if( active_tool === "cluster5" ) return( pixels_for_cluster(point, tool_cluster_radius_5) );
     return( unique_pixels([{ c: point.c, y: point.y }]) );
 }
 
 function pixels_for_drag_tool(start, end) {
+    if( active_tool === "text" ) {
+        if( current_text_mode === "screen" ) {
+            return pixels_for_screen_text(current_text_string, end.c, end.y);
+        }
+        return pixels_for_text(current_text_string, end.c, end.y);
+    }
     if( active_tool === "line" ) return( pixels_for_screen_line(start, end) );
     if( active_tool === "disc" ) return( pixels_for_filled_screen_circle(start, end) );
     if( active_tool === "circle" ) return( pixels_for_screen_circle_outline(start, end) );
@@ -1589,15 +1918,194 @@ function show_tool_preview(points) {
     });
 }
 
+function get_pixel_cycle_button() {
+    return document.getElementById("pixel-btn");
+}
+
+function sync_pixel_cycle_button_state() {
+    const button = get_pixel_cycle_button();
+    if( !button ) return;
+
+    const normalized_level = clamp_number(paint_level, 1, 3, 1);
+    paint_level = normalized_level;
+
+    button.classList.remove("level-1", "level-2", "level-3");
+    button.classList.add("level-" + paint_level);
+    button.classList.toggle("selected", is_paint_level_tool(active_tool));
+
+    const currentState = button.getState ? button.getState("weight") : null;
+    if( typeof button.setState === "function" && currentState !== paint_level - 1 ) {
+        suppress_pixel_cycle_sync = true;
+        button.setState("weight", paint_level - 1);
+        suppress_pixel_cycle_sync = false;
+    }
+
+    if( typeof button.setMainTitle === "function" ) {
+        button.setMainTitle("Paint size " + paint_level + ": click or press P to cycle");
+    }
+
+    if( typeof button.setSectionTitle === "function" ) {
+        button.setSectionTitle("weight", "Paint size " + paint_level + " / 3");
+    }
+
+    if( button.title !== "Paint size " + paint_level + ": click or press P to cycle" ) {
+        button.title = "Paint size " + paint_level + ": click or press P to cycle";
+    }
+}
+
+function update_paint_level_button() {
+    // Legacy toolbar markup is no longer used; the reusable cycle button now owns its own
+    // dot state, selection styling, and hover title.
+    sync_pixel_cycle_button_state();
+}
+
+function set_paint_level(level, should_select_tool) {
+    paint_level = clamp_number(level, 1, 3, 1);
+    update_paint_level_button();
+
+    if( should_select_tool ) {
+        select_tool(tool_for_paint_level(paint_level));
+    } else {
+        save_editor_state_to_localstorage();
+    }
+}
+
+function cycle_paint_level() {
+    const next_level = paint_level >= 3 ? 1 : paint_level + 1;
+    set_paint_level(next_level, true);
+}
+
+function click_paint_level_tool() {
+    if( is_paint_level_tool(active_tool) ) {
+        cycle_paint_level();
+    } else {
+        select_tool(tool_for_paint_level(paint_level));
+    }
+}
+
+function sync_circle_cycle_button_state() {
+    const button = document.getElementById("circle-btn");
+    if( !button ) return;
+
+    const isFilled = current_circle_mode === "filled";
+    suppress_circle_cycle_sync = true;
+    button.setState && button.setState("weight", isFilled ? 1 : 0);
+    suppress_circle_cycle_sync = false;
+
+    if( button.setMainTitle ) {
+        button.setMainTitle(isFilled ? "Filled circle" : "Outline circle");
+    }
+
+    if( button.setSectionTitle ) {
+        button.setSectionTitle("weight", isFilled ? "Filled" : "Outline");
+    }
+}
+
+function get_font_title() {
+    return ["font001", "font002", "font003"][current_font_index] || "font001";
+}
+
+function sync_text_cycle_button_state() {
+    const button = document.getElementById("text-btn");
+    if( !button ) return;
+
+    suppress_text_cycle_sync = true;
+    button.setState && button.setState("orientation", current_text_mode === "radial" ? 1 : 0);
+    button.setState && button.setState("font-size", current_font_index);
+    suppress_text_cycle_sync = false;
+
+    if( button.setMainTitle ) {
+        button.setMainTitle("Text: " + (current_text_mode === "radial" ? "radial" : "screen") + " / " + get_font_title());
+    }
+
+    if( button.setSectionTitle ) {
+        button.setSectionTitle("orientation", current_text_mode === "radial" ? "Radial" : "Screen");
+        button.setSectionTitle("font-size", get_font_title());
+    }
+}
+
+function set_circle_mode(mode, should_select_tool) {
+    current_circle_mode = mode === "filled" ? "filled" : "outline";
+    sync_circle_cycle_button_state();
+    save_editor_state_to_localstorage();
+
+    if( should_select_tool ) {
+        select_tool(current_circle_mode === "filled" ? "disc" : "circle");
+    }
+}
+
+function cycle_circle_mode() {
+    set_circle_mode(current_circle_mode === "filled" ? "outline" : "filled", true);
+}
+
+function set_text_orientation(mode) {
+    current_text_mode = mode === "radial" ? "radial" : "screen";
+    sync_text_cycle_button_state();
+    save_editor_state_to_localstorage();
+}
+
+function cycle_text_orientation() {
+    set_text_orientation(current_text_mode === "radial" ? "screen" : "radial");
+}
+
+function set_text_font_size(index) {
+    const normalizedIndex = Number.isInteger(index)
+        ? ((index % 3) + 3) % 3
+        : current_font_index;
+    current_font_index = normalizedIndex;
+    sync_text_cycle_button_state();
+    save_editor_state_to_localstorage();
+}
+
+function cycle_text_font_size() {
+    set_text_font_size(current_font_index + 1);
+}
+
 function select_tool(tool_name) {
+    tool_name = normalize_tool_name(tool_name, "draw");
+
     active_tool = tool_name;
+
+    if( is_paint_level_tool(active_tool) ) {
+        paint_level = paint_level_for_tool(active_tool);
+    }
+
+    // bug: if you change tools old one remains
+    clear_tool_preview();
 
     document.querySelectorAll(".hint-tools .pressable").forEach((kbd) => {
         kbd.classList.remove("selected");
     });
 
-    const selected = document.querySelector(".hint-tools .tool-" + tool_name);
+    let selected = null;
+
+    if( is_paint_level_tool(active_tool) ) {
+        selected = document.querySelector(".hint-tools .tool-draw");
+    } else {
+        selected = document.querySelector(".hint-tools .tool-" + active_tool);
+    }
+
     if( selected ) selected.classList.add("selected");
+
+    const pixelButton = get_pixel_cycle_button();
+    if( pixelButton ) {
+        pixelButton.classList.toggle("selected", is_paint_level_tool(active_tool));
+    }
+
+    const circleButton = document.getElementById("circle-btn");
+    if( circleButton ) {
+        circleButton.classList.toggle("selected", active_tool === "circle" || active_tool === "disc");
+        sync_circle_cycle_button_state();
+    }
+
+    const textButton = document.getElementById("text-btn");
+    if( textButton ) {
+        textButton.classList.toggle("selected", active_tool === "text");
+        sync_text_cycle_button_state();
+    }
+
+    update_paint_level_button();
+    save_editor_state_to_localstorage();
 }
 
 function finish_tool_drag() {
@@ -1637,6 +2145,14 @@ function begin_tool_drag(point, shiftKey) {
         apply_tool_pixels(pixels_for_tool_at(point));
         update_output_code();
     }
+}
+
+function show_text_hover_preview(point) {
+    if( active_tool !== "text" ) return;
+    if( current_text_string.trim() === "" ) return;
+    if( is_painting || is_erasing ) return;
+
+    show_tool_preview(pixels_for_tool_at(point));
 }
 
 function continue_tool_drag(point) {
@@ -1707,6 +2223,13 @@ paper.mousedown(function(e) {
     update_tooltip(e.target);
 });
 
+paper.mousemove(function(e) {
+    const point = pixel_from_event_target(e.target);
+    if( point === null ) return;
+
+    show_text_hover_preview(point);
+});
+
 paper.mouseup(function(e) {
     finish_tool_drag();
 });
@@ -1719,6 +2242,8 @@ paper.mouseover(function(e) {
     const point = show_hover_state(e);
     if( point === null ) return;
 
+    show_text_hover_preview(point);
+
     if( e.buttons === 1 ) {
         continue_tool_drag(point);
     }
@@ -1726,6 +2251,10 @@ paper.mouseover(function(e) {
 
 paper.mouseout(function(e) {
     clear_hover_state(e);
+
+    if( active_tool === "text" && !is_painting && !is_erasing ) {
+        clear_tool_preview();
+    }
 });
 
 // #endregion
@@ -1858,10 +2387,13 @@ function reset_editor_tools_to_defaults() {
     prev_rotation = 0;
     is_left = false;
     is_right = false;
-
+    paint_level = 1;
+    active_tool = "draw";
+    
     select_color(current_color);
     applyViewState();
     applyRotationState();
+    select_tool(active_tool);
     save_editor_state_to_localstorage();
 
     document.querySelector(".hint-rotate .key-a").classList.remove("selected");
@@ -1889,6 +2421,8 @@ function select_color(color_index) {
 document.addEventListener("keypress", function(k) {
     if( k.altKey || k.ctrlKey || k.metaKey ) return;
 
+    if( k.target && k.target.id === "write" ) return;
+
     for( let i = 1; i <= 7; i++ ) {
         if( k.key === i.toString() ) {
             select_color( i-1 );
@@ -1901,20 +2435,38 @@ document.addEventListener("keypress", function(k) {
     
     const k2 = k.key.toLowerCase();
 
-    if( k2 === "p" ) {
-        select_tool("draw");
+    if( k2 === "t" ) {
+        const input = document.querySelector("#write").value;
+        if( input !== null && input.trim() !== "" ) {
+            current_text_string = input;
+        }
+
+        if( active_tool === "text" && k.shiftKey ) {
+            cycle_text_font_size();
+        } else if( active_tool === "text" ) {
+            cycle_text_orientation();
+        } else {
+            select_tool("text");
+        }
+    } else if( k2 === "p" ) {
+        //select_tool("draw");
+        click_paint_level_tool();
     }
-    else if( k2 === "b" ) {
-        select_tool("cluster3");
-    }
-    else if( k2 === "g" ) {
-        select_tool("cluster5");
-    }
+    // else if( k2 === "b" ) {
+    //     select_tool("cluster3");
+    // }
+    // else if( k2 === "g" ) {
+    //     select_tool("cluster5");
+    // }
     else if( k2 === "l" ) {
         select_tool("line");
     }
     else if( k2 === "c"  ) {
-        select_tool("circle");
+        if( active_tool === "circle" || active_tool === "disc" ) {
+            cycle_circle_mode();
+        } else {
+            set_circle_mode(current_circle_mode, true);
+        }
     }
     else if( k2 === "f" ) {
         select_tool("disc");
@@ -1922,6 +2474,8 @@ document.addEventListener("keypress", function(k) {
 });
 
 document.addEventListener("keydown", function(k) {
+    if( k.target && k.target.id === "write" ) return;
+
     if( k.altKey && !k.ctrlKey && !k.metaKey && !k.shiftKey ) {
         const n = parseInt(k.key, 10);
         if( Number.isInteger(n) && n >= 1 && n <= 8 ) {

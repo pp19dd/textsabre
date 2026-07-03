@@ -7,7 +7,11 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />        
     <link rel="stylesheet" type="text/css" href="editor.css" />
     <script src="snap.svg-min.js"></script>
+    <script src="cycle.js"></script>
     <script src="font-spleen-5x8.js"></script>
+    <script src="font-spleen-6x12.js"></script>
+    <script src="font-spleen-8x16.js"></script>
+    <script src="font-spleen-12x24.js"></script>
     <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
     <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32x32.png" />
     <link rel="icon" type="image/png" sizes="16x16" href="/favicon-16x16.png" />
@@ -77,14 +81,118 @@
             </div>
 
             <div class="hint hint-tools">
-                <span class="ctrl">shift:<br/>delete</span>
+                <span class="ctrl">shift:<br/>erase</span>
                 <span>tool</span>
-                <kbd class="key kbd pressable active selected tool-draw" title="Draw single pixel"><span class="key-button">P</span>ixel</kbd>
-                <kbd class="key kbd pressable active tool-cluster3" title="Draw filled cluster, radius 3"><span class="key-button">B</span>rush</kbd>
-                <kbd class="key kbd pressable active tool-cluster5" title="Draw filled cluster, radius 5">bi<span class="key-button">G</span></kbd>
-                <kbd class="key kbd pressable active tool-line" title="Draw line: press, drag, release"><span class="key-button">L</span>ine</kbd>
-                <kbd class="key kbd pressable active tool-circle" title="Draw circle: press center, drag radius, release"><span class="key-button">C</span>ircle</kbd>
-                <kbd class="key kbd pressable active tool-disc" title="Draw filled circle: press center, drag radius, release"><span class="key-button">F</span>illed</kbd>
+                <!-- <kbd class="key kbd pressable active selected tool-draw tool-sized level-1"
+                    title="Draw / Brush size: click to cycle 1, 2, 3">
+                    <span class="tool-label"><span class="key-button">P</span>ixel</span>
+                    <span class="level-dots" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
+                </kbd> -->
+                <!-- <cycle-button 
+                    id="pixel-btn" 
+                    title="asdasdas"
+
+                    style="color: cyan;"
+                    config='[{"id": "size", "side": "right", "count": 3, "layout": "3x1", "active": 0}]'>
+                    <span class="hotkey">L</span>ine
+                </cycle-button>
+                <cycle-button 
+                id="line-btn" 
+                label="Draw"
+                title="asdasdas"
+                config='[{
+                    "id": "weight", 
+                    "side": "right", 
+                    "count": 4, 
+                    "layout": "2x2", 
+                    "order": "column", 
+                    "title": "Stroke Width: Light"
+                }]'>
+                <span class="hotkey">L</span>ine
+                </cycle-button> -->
+
+                <cycle-button 
+                    id="pixel-btn"
+                    class="pressable active tool-draw"
+                    config='[{
+                        "id": "weight", 
+                        "side": "right", 
+                        "count": 3, 
+                        "layout": "3x1", 
+                        "order": "column", 
+                        "title": "Stroke Width: Light"
+                    }]'>
+                    <span class="hotkey">P</span>ixel
+                </cycle-button>
+                
+                <cycle-button
+                    id="line-btn"
+                    class="pressable active tool-line"
+                    title="Draw line: press, drag, release"
+                    config='[]'>
+                    <span class="hotkey">L</span>ine
+                </cycle-button>
+                <!--
+                    <kbd class="key kbd pressable active tool-circle" title="Draw circle: press center, drag radius, release"><span class="key-button">C</span>ircle</kbd>
+                -->
+                <cycle-button 
+                    id="circle-btn"
+                    class="pressable active tool-circle"
+                    config='[{
+                        "id": "weight", 
+                        "side": "right", 
+                        "count": 2, 
+                        "layout": "2x1", 
+                        "order": "column", 
+                        "title": "Outline / Filled"
+                    }]'>
+                    <span class="hotkey">C</span>ircle
+                </cycle-button>
+
+
+                <!-- <kbd class="key kbd pressable active tool-disc" title="Draw filled circle: press center, drag radius, release"><span class="key-button">F</span>illed</kbd> -->
+
+                <cycle-button 
+                    id="text-btn"
+                    class="pressable active tool-text"
+                    config='[
+                    {
+                        "id": "orientation", 
+                        "side": "right", 
+                        "count": 2, 
+                        "layout": "2x1", 
+                        "order": "column", 
+                        "title": "Orientation"
+                    },
+                    {
+                        "id": "font-size", 
+                        "side": "right", 
+                        "count": 3, 
+                        "layout": "3x1", 
+                        "order": "column", 
+                        "title": "Font Size"
+                    }
+                    ]'>
+                    <span class="hotkey">T</span>ext
+                </cycle-button>
+
+                <!-- <kbd class="key kbd pressable active tool-text tool-sized level-1"
+                    title="Text: click to cycle size/font">
+                    <span class="tool-label"><span class="key-button">T</span>ext</span>
+                    <span class="level-dots" aria-hidden="true">
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                        <span></span>
+                    </span>
+                </kbd> -->
+                <div class="hint hint-write">
+                    <input type="text" id="write" autocomplete="off" spellcheck="false" value="hello" />
+                </div>
             </div>
         </div>
     </div>

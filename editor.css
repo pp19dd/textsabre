@@ -29,6 +29,9 @@
 --key-shadow: rgba(0,0,0,0.6);
 --key-text: rgba(255,255,255,0.92);
 
+--button-accent: #ff4444;
+--button-accent-glow: rgba(255, 68, 68, 0.4);
+
 --field-background: ghostwhite;
 }
 
@@ -163,7 +166,56 @@ kbd.key.pressable {
 .kbd.color0::after { background: var(--color0); }
 
 /* selected color */
-.kbd.selected { box-shadow: 0 2px 0 rgba(0,0,0,0.45), 0 0 0 2px currentColor; }
+.kbd.selected,
+kbd.key.selected {
+    border-color: var(--button-accent);
+    box-shadow:
+        0 0 8px var(--button-accent-glow),
+        0 2px 0 var(--button-accent);
+}
+
+/* buttons that have a right-side 1/2/3 indicator */
+.kbd.tool-sized {
+    gap: 8px;
+    padding-right: 0.42em;
+}
+
+.tool-label {
+    display: inline-flex;
+    align-items: center;
+}
+
+.level-dots {
+    align-self: stretch;
+    display: inline-flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 3px;
+
+    margin-left: 3px;
+    padding-left: 7px;
+    padding-right: 1px;
+
+    border-left: 1px solid rgba(255,255,255,0.18);
+}
+
+.level-dots span {
+    width: 6px;
+    height: 6px;
+    border-radius: 999px;
+
+    background: rgba(255,255,255,0.18);
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.16);
+}
+
+.kbd.level-1 .level-dots span:nth-child(1),
+.kbd.level-2 .level-dots span:nth-child(2),
+.kbd.level-3 .level-dots span:nth-child(3) {
+    background: currentColor;
+    box-shadow:
+        0 0 5px currentColor,
+        inset 0 0 0 1px rgba(255,255,255,0.45);
+}
 
 .overlay {
     position: absolute;
@@ -318,10 +370,63 @@ a { color: silver }
     stroke: black;
 }
 
-.hint-tools .pressable.selected {
-    outline: 2px solid currentColor;
-    outline-offset: 2px;
-}
 .key-button {
     color: crimson;
+}
+
+/* text entry control */
+.hint-write {
+    gap: 8px;
+}
+
+#write {
+    pointer-events: auto;
+
+    width: 16ch;
+    height: 2.05em;
+    padding: 0 0.7em;
+
+    box-sizing: border-box;
+
+    border-radius: 10px;
+    border: 1px solid var(--key-border);
+
+    background:
+        linear-gradient(180deg, rgba(255,255,255,0.08), transparent 45%),
+        #1f1f1f;
+
+    box-shadow:
+        inset 0 2px 5px rgba(0,0,0,0.55),
+        0 2px 0 rgba(0,0,0,0.35);
+
+    color: var(--key-text);
+
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+                "Liberation Mono", "DejaVu Sans Mono", monospace;
+    font-size: 1.0rem;
+    font-weight: 600;
+    letter-spacing: 0.03em;
+
+    outline: none;
+}
+
+#write:hover {
+    border-color: rgba(255,255,255,0.28);
+}
+
+#write:focus {
+    border-color: currentColor;
+    box-shadow:
+        inset 0 2px 5px rgba(0,0,0,0.55),
+        0 2px 0 rgba(0,0,0,0.35),
+        0 0 0 2px currentColor;
+}
+
+#write::selection {
+    background: darkcyan;
+    color: white;
+}
+
+#write::placeholder {
+    color: rgba(255,255,255,0.35);
 }
