@@ -115,6 +115,7 @@ const storage_paint_level_key = "sabre-paint-level";
 const storage_circle_mode_key = "sabre-circle-mode";
 const storage_text_mode_key = "sabre-text-mode";
 const storage_text_font_key = "sabre-text-font";
+const storage_text_input_key = "sabre-text-input";
 
 // Undo stores full image snapshots, one entry per completed paint/erase gesture.
 // Bump this up/down as desired; memory use is roughly rows * columns * steps integers.
@@ -811,6 +812,51 @@ function save_editor_state_to_localstorage() {
     localStorage.setItem(storage_text_font_key, current_font_index.toString());
 }
 
+function get_write_input() {
+    return document.querySelector("#write");
+}
+
+function load_text_input_from_localstorage() {
+    const input = get_write_input();
+    if( !input ) return;
+
+    try {
+        const saved = localStorage.getItem(storage_text_input_key);
+        const value = saved === null ? "" : saved;
+        input.value = value;
+        current_text_string = value;
+    } catch(err) {
+        console.warn("Could not load text input from localStorage", err);
+    }
+}
+
+function save_text_input_to_localstorage() {
+    const input = get_write_input();
+    if( !input ) return;
+
+    current_text_string = input.value;
+
+    try {
+        localStorage.setItem(storage_text_input_key, input.value);
+    } catch(err) {
+        console.warn("Could not save text input to localStorage", err);
+    }
+}
+
+function reset_text_input_to_default() {
+    const input = get_write_input();
+    if( !input ) return;
+
+    current_text_string = "hello!";
+    input.value = "hello";
+
+    try {
+        localStorage.setItem(storage_text_input_key, "");
+    } catch(err) {
+        console.warn("Could not reset text input in localStorage", err);
+    }
+}
+
 function save_rotation_to_localstorage() {
     localStorage.setItem(storage_rotation_key, rotation.toString());
 }
@@ -857,6 +903,7 @@ document.addEventListener("DOMContentLoaded", (e) => {
     active_image_index = document.querySelector("#image_index").value;
     load_history_from_localstorage();
     load_current_image_from_localstorage();
+    load_text_input_from_localstorage();
     document.querySelector("#image_index").title = "Switch image slots with Alt+1 through Alt+8";
     update_undo_redo_buttons();
 
@@ -976,6 +1023,7 @@ document.addEventListener("DOMContentLoaded", (e) => {
 
     function write_handler(e) {
         current_text_string = e.target.value;
+        save_text_input_to_localstorage();
         
         // unfocus when enter hit 
         if( e.type === "keydown" && e.key === "Enter" ) {
@@ -2394,6 +2442,7 @@ function reset_editor_tools_to_defaults() {
     applyViewState();
     applyRotationState();
     select_tool(active_tool);
+    reset_text_input_to_default();
     save_editor_state_to_localstorage();
 
     document.querySelector(".hint-rotate .key-a").classList.remove("selected");
