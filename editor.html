@@ -41,13 +41,6 @@
             <textarea readonly id="output"></textarea>
         </div>
         <svg id="svg" class="noselect"></svg>
-        <!--<div class="toolbar toolbar-text">
-            <div class="hint hint-write">
-                <span>write</span>
-                <input type="text" id="write" autocomplete="off" spellcheck="false" />
-                <kbd class="key kbd pressable active place">place</kbd>
-            </div>
-        </div>-->
         <div class="toolbar">
             <div class="hint hint-rotate">
                 <span>rotate</span>
@@ -83,38 +76,6 @@
             <div class="hint hint-tools">
                 <span class="ctrl">shift:<br/>erase</span>
                 <span>tool</span>
-                <!-- <kbd class="key kbd pressable active selected tool-draw tool-sized level-1"
-                    title="Draw / Brush size: click to cycle 1, 2, 3">
-                    <span class="tool-label"><span class="key-button">P</span>ixel</span>
-                    <span class="level-dots" aria-hidden="true">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                    </span>
-                </kbd> -->
-                <!-- <cycle-button 
-                    id="pixel-btn" 
-                    title="asdasdas"
-
-                    style="color: cyan;"
-                    config='[{"id": "size", "side": "right", "count": 3, "layout": "3x1", "active": 0}]'>
-                    <span class="hotkey">L</span>ine
-                </cycle-button>
-                <cycle-button 
-                id="line-btn" 
-                label="Draw"
-                title="asdasdas"
-                config='[{
-                    "id": "weight", 
-                    "side": "right", 
-                    "count": 4, 
-                    "layout": "2x2", 
-                    "order": "column", 
-                    "title": "Stroke Width: Light"
-                }]'>
-                <span class="hotkey">L</span>ine
-                </cycle-button> -->
-
                 <cycle-button 
                     id="pixel-btn"
                     class="pressable active tool-draw"
@@ -136,9 +97,6 @@
                     config='[]'>
                     <span class="hotkey">L</span>ine
                 </cycle-button>
-                <!--
-                    <kbd class="key kbd pressable active tool-circle" title="Draw circle: press center, drag radius, release"><span class="key-button">C</span>ircle</kbd>
-                -->
                 <cycle-button 
                     id="circle-btn"
                     class="pressable active tool-circle"
@@ -152,9 +110,6 @@
                     }]'>
                     <span class="hotkey">C</span>ircle
                 </cycle-button>
-
-
-                <!-- <kbd class="key kbd pressable active tool-disc" title="Draw filled circle: press center, drag radius, release"><span class="key-button">F</span>illed</kbd> -->
 
                 <cycle-button 
                     id="text-btn"
@@ -171,8 +126,8 @@
                     {
                         "id": "font-size", 
                         "side": "right", 
-                        "count": 3, 
-                        "layout": "3x1", 
+                        "count": 4, 
+                        "layout": "2x2", 
                         "order": "column", 
                         "title": "Font Size"
                     }
@@ -180,16 +135,6 @@
                     <span class="hotkey">T</span>ext
                 </cycle-button>
 
-                <!-- <kbd class="key kbd pressable active tool-text tool-sized level-1"
-                    title="Text: click to cycle size/font">
-                    <span class="tool-label"><span class="key-button">T</span>ext</span>
-                    <span class="level-dots" aria-hidden="true">
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                        <span></span>
-                    </span>
-                </kbd> -->
                 <div class="hint hint-write">
                     <input type="text" id="write" autocomplete="off" spellcheck="false" value="hello" />
                 </div>
