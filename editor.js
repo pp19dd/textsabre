@@ -813,11 +813,13 @@ function save_editor_state_to_localstorage() {
 }
 
 function get_write_input() {
-    return document.querySelector("#write");
+    const input = document.querySelector("#write");
+    if( !input ) return "";
+    return input.value.trim();
 }
 
 function load_text_input_from_localstorage() {
-    const input = get_write_input();
+    const input = document.querySelector("#write");
     if( !input ) return;
 
     try {
@@ -831,24 +833,25 @@ function load_text_input_from_localstorage() {
 }
 
 function save_text_input_to_localstorage() {
-    const input = get_write_input();
+    const input = document.querySelector("#write");
     if( !input ) return;
 
-    current_text_string = input.value;
+    const text = get_write_input();
+    current_text_string = text;
 
     try {
-        localStorage.setItem(storage_text_input_key, input.value);
+        localStorage.setItem(storage_text_input_key, text);
     } catch(err) {
         console.warn("Could not save text input to localStorage", err);
     }
 }
 
 function reset_text_input_to_default() {
-    const input = get_write_input();
+    const input = document.querySelector("#write");
     if( !input ) return;
 
-    current_text_string = "hello!";
-    input.value = "hello";
+    current_text_string = "TEXTSABRE";
+    input.value = "TEXTSABRE";
 
     try {
         localStorage.setItem(storage_text_input_key, "");
@@ -1027,8 +1030,9 @@ document.addEventListener("DOMContentLoaded", (e) => {
     });
 
     function write_handler(e) {
-        current_text_string = e.target.value;
+        current_text_string = get_write_input();
         save_text_input_to_localstorage();
+        refresh_text_preview();
         
         // unfocus when enter hit 
         if( e.type === "keydown" && e.key === "Enter" ) {
@@ -1136,10 +1140,7 @@ function button_click_events() {
     if( textButton ) {
         textButton.addEventListener("click", (e) => {
             if( e.target && e.target.closest && e.target.closest(".level-dots") ) return;
-            const input = document.querySelector("#write").value;
-            if( input !== null && input.trim() !== "" ) {
-                current_text_string = input;
-            }
+            current_text_string = get_write_input();
 
             if( active_tool === "text" ) {
                 cycle_text_orientation();
@@ -2326,6 +2327,7 @@ function point_for_text_preview(e) {
 function refresh_text_preview() {
     if( active_tool !== "text" ) return;
 
+    // why is this an error?
     if( current_text_string.trim() === "" || is_painting || is_erasing ) {
         clear_tool_preview();
         return;
@@ -2637,10 +2639,7 @@ document.addEventListener("keypress", function(k) {
     const k2 = k.key.toLowerCase();
 
     if( k2 === "t" ) {
-        const input = document.querySelector("#write").value;
-        if( input !== null && input.trim() !== "" ) {
-            current_text_string = input;
-        }
+        current_text_string = get_write_input();
 
         if( active_tool === "text" && k.shiftKey ) {
             cycle_text_font_size();
