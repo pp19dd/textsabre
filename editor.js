@@ -1546,7 +1546,7 @@ function apply_text_orientation(points, center_c, center_y, mode) {
 }
 
 function get_active_font_data() {
-    const fonts = [myfont001, myfont002, myfont003];
+    const fonts = [myfont001, myfont002, myfont003, myfont004];
     return fonts[current_font_index] || myfont001;
 }
 
@@ -2149,7 +2149,7 @@ function sync_circle_cycle_button_state() {
 }
 
 function get_font_title() {
-    return ["font001", "font002", "font003"][current_font_index] || "font001";
+    return ["font001", "font002", "font003", "font004"][current_font_index] || "font001";
 }
 
 function sync_text_cycle_button_state() {
@@ -2198,7 +2198,7 @@ function cycle_text_orientation() {
 
 function set_text_font_size(index) {
     const normalizedIndex = Number.isInteger(index)
-        ? ((index % 3) + 3) % 3
+        ? ((index % 4) + 4) % 4
         : current_font_index;
     current_font_index = normalizedIndex;
     sync_text_cycle_button_state();
