@@ -854,7 +854,7 @@ function reset_text_input_to_default() {
     input.value = "TEXTSABRE";
 
     try {
-        localStorage.setItem(storage_text_input_key, "");
+        localStorage.setItem(storage_text_input_key, "TEXTSABRE");
     } catch(err) {
         console.warn("Could not reset text input in localStorage", err);
     }
@@ -2115,6 +2115,7 @@ function set_paint_level(level, should_select_tool) {
         select_tool(tool_for_paint_level(paint_level));
     } else {
         save_editor_state_to_localstorage();
+        refresh_tool_preview_for_hover();
     }
 }
 
@@ -2256,6 +2257,7 @@ function select_tool(tool_name) {
 
     update_paint_level_button();
     save_editor_state_to_localstorage();
+    refresh_tool_preview_for_hover();
 }
 
 function finish_tool_drag() {
@@ -2303,7 +2305,11 @@ function begin_tool_drag(point, shiftKey) {
         show_tool_preview_shape(tool_drag_start, tool_drag_last);
         show_tool_preview(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
     } else {
-        apply_tool_pixels(pixels_for_tool_at(point));
+        const points = pixels_for_tool_at(point);
+        if( active_tool === "cluster3" || active_tool === "cluster5" ) {
+            show_tool_preview(points);
+        }
+        apply_tool_pixels(points);
         update_output_code();
     }
 }
@@ -2324,10 +2330,35 @@ function point_for_text_preview(e) {
     return pixel_from_xy_if_on_board(board_point.x, board_point.y);
 }
 
-function refresh_text_preview() {
-    if( active_tool !== "text" ) return;
+function refresh_tool_preview_for_hover() {
+    if( is_painting || is_erasing ) {
+        clear_tool_preview();
+        return;
+    }
 
-    // why is this an error?
+    if( active_tool === "text" ) {
+        refresh_text_preview();
+        return;
+    }
+
+    if( active_tool === "draw" || active_tool === "cluster3" || active_tool === "cluster5" ) {
+        if( last_hover_point ) {
+            show_tool_preview(pixels_for_tool_at(last_hover_point));
+        } else {
+            clear_tool_preview();
+        }
+        return;
+    }
+
+    clear_tool_preview();
+}
+
+function refresh_text_preview() {
+    if( active_tool !== "text" ) {
+        refresh_tool_preview_for_hover();
+        return;
+    }
+
     if( current_text_string.trim() === "" || is_painting || is_erasing ) {
         clear_tool_preview();
         return;
@@ -2341,16 +2372,28 @@ function refresh_text_preview() {
 }
 
 function show_text_hover_preview(point) {
-    if( active_tool !== "text" ) return;
-
     last_hover_point = point || null;
 
-    if( current_text_string.trim() === "" || is_painting || is_erasing || !point ) {
+    if( !point ) {
         clear_tool_preview();
         return;
     }
 
-    show_tool_preview(pixels_for_tool_at(point));
+    if( active_tool === "text" ) {
+        if( current_text_string.trim() === "" || is_painting || is_erasing ) {
+            clear_tool_preview();
+            return;
+        }
+    } else if( is_painting || is_erasing ) {
+        clear_tool_preview();
+        return;
+    }
+
+    if( active_tool === "text" || active_tool === "draw" || active_tool === "cluster3" || active_tool === "cluster5" ) {
+        show_tool_preview(pixels_for_tool_at(point));
+    } else {
+        clear_tool_preview();
+    }
 }
 
 function continue_tool_drag(point) {
@@ -2363,7 +2406,11 @@ function continue_tool_drag(point) {
         show_tool_preview_shape(tool_drag_start, tool_drag_last);
         show_tool_preview(pixels_for_drag_tool(tool_drag_start, tool_drag_last));
     } else {
-        apply_tool_pixels(pixels_for_tool_at(point));
+        const points = pixels_for_tool_at(point);
+        if( active_tool === "cluster3" || active_tool === "cluster5" ) {
+            show_tool_preview(points);
+        }
+        apply_tool_pixels(points);
         update_output_code();
     }
 }
@@ -2454,7 +2501,11 @@ paper.mouseover(function(e) {
 paper.mouseout(function(e) {
     clear_hover_state(e);
 
-    if( active_tool === "text" && !is_painting && !is_erasing ) {
+    if(
+        (active_tool === "text" || active_tool === "cluster3" || active_tool === "cluster5") &&
+        !is_painting &&
+        !is_erasing
+    ) {
         clear_tool_preview();
     }
 });
