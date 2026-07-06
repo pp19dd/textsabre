@@ -237,6 +237,19 @@ function localstorage_image_has_content(image_index) {
     return( pixel_array_has_content(load_pixels_from_localstorage(image_index)) );
 }
 
+function update_copy_button_label() {
+    const button = document.querySelector("button#copy");
+    if( !button ) return;
+
+    const slot = (
+        typeof active_image_index === "string" && active_image_index !== ""
+            ? active_image_index
+            : "0"
+    );
+
+    button.innerHTML = "&#10697; copy image_" + slot;
+}
+
 function update_image_index_markers() {
     const select = document.querySelector("#image_index");
     if( !select ) return;
@@ -248,6 +261,8 @@ function update_image_index_markers() {
         option.title = "Alt+" + hotkey_number + " switches to image_" + option.value;
         option.classList.toggle("has-content", has_content);
     });
+
+    update_copy_button_label();
 }
 
 function load_pixels_from_localstorage(image_index) {
@@ -560,6 +575,7 @@ function load_output() {
 
                 clear_all_history();
                 load_current_image_from_localstorage();
+                update_copy_button_label();
             } catch(err) {
                 console.error(err);
                 alert("Could not load that textsabre file.");
@@ -926,6 +942,7 @@ document.addEventListener("DOMContentLoaded", (e) => {
     load_current_image_from_localstorage();
     load_text_input_from_localstorage();
     document.querySelector("#image_index").title = "Switch image slots with Alt+1 through Alt+8";
+    update_copy_button_label();
     update_undo_redo_buttons();
 
     // standardized visual effect acknowledging a click

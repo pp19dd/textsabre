@@ -249,7 +249,7 @@ kbd.key.selected {
 
 button#copy, button#copy_all, button#clear_all, button#save, button#load, #image_index { pointer-events: auto }
 
-.overlay-right * { font-size: 1.2rem; }
+.overlay-right * { font-size: 1.1rem; }
 .overlay-right {
     width: 350px;
     max-width: min(420px, calc(100vw - 24px));
@@ -279,7 +279,7 @@ button#copy, button#copy_all, button#clear_all, button#save, button#load, #image
 button { cursor: pointer }
 #new { pointer-events: auto }
 .byte-row { display: flex; justify-content: space-between; }
-#arduino-code { grid-column: span 1 }
+#arduino-code { grid-column: span 1; text-decoration: underline; text-decoration-style: dashed }
 #copy_all { grid-column: span 2 }
 
 #arduino-code { color: #00979D; }
