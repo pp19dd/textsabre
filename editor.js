@@ -116,6 +116,7 @@ const storage_circle_mode_key = "sabre-circle-mode";
 const storage_text_mode_key = "sabre-text-mode";
 const storage_text_font_key = "sabre-text-font";
 const storage_text_input_key = "sabre-text-input";
+const storage_expand_key = "sabre-expand";
 
 // Undo stores full image snapshots, one entry per completed paint/erase gesture.
 // Bump this up/down as desired; memory use is roughly rows * columns * steps integers.
@@ -777,6 +778,20 @@ function restore_editor_state(state) {
         current_font_index = clamp_number(state.text_font, 0, 2, current_font_index);
     }
 
+    if( typeof state.expand_state !== "undefined" ) {
+        const output = document.getElementById("output");
+        const button = document.querySelector("button#expand");
+        if( output && button ) {
+            if( state.expand_state === "true" ) {
+                output.classList.remove("collapsed");
+                button.innerHTML = "&#9650;";
+            } else {
+                output.classList.add("collapsed");
+                button.innerHTML = "&#9660;";
+            }
+        }
+    }
+
     if( typeof state.active_tool !== "undefined" ) {
         active_tool = normalize_tool_name(state.active_tool, active_tool);
 
@@ -797,7 +812,8 @@ function load_editor_state_from_localstorage() {
         paint_level: localStorage.getItem(storage_paint_level_key),
         circle_mode: localStorage.getItem(storage_circle_mode_key),
         text_mode: localStorage.getItem(storage_text_mode_key),
-        text_font: localStorage.getItem(storage_text_font_key)
+        text_font: localStorage.getItem(storage_text_font_key),
+        expand_state: localStorage.getItem(storage_expand_key)
     });
 }
 
@@ -810,6 +826,8 @@ function save_editor_state_to_localstorage() {
     localStorage.setItem(storage_circle_mode_key, current_circle_mode);
     localStorage.setItem(storage_text_mode_key, current_text_mode);
     localStorage.setItem(storage_text_font_key, current_font_index.toString());
+    const output = document.getElementById("output");
+    localStorage.setItem(storage_expand_key, output && !output.classList.contains("collapsed") ? "true" : "false");
 }
 
 function get_write_input() {
@@ -926,6 +944,18 @@ document.addEventListener("DOMContentLoaded", (e) => {
 
     document.querySelector("button#copy_all").addEventListener("click", (e) => {
         copy_output(get_all_images_arduino_code());
+    });
+
+    document.querySelector("button#expand").addEventListener("click", (e) => {
+        const button = document.querySelector("button#expand");
+        const output = document.getElementById("output");
+        output.classList.toggle("collapsed");
+        if( output.classList.contains("collapsed") ) {
+            button.innerHTML = "&#9660;"; // down
+        } else {
+            button.innerHTML = "&#9650;"; // up
+        }
+        save_editor_state_to_localstorage();
     });
 
     document.querySelector("button#clear_all").addEventListener("click", (e) => {
@@ -1324,7 +1354,7 @@ for( let a = 0 + angle_offset; a < 360 + angle_offset; a += 360/steps ) {
     if( count_column % 5 ) {
     } else {
         const t = paper.text(0,0, count_column.toString()).attr({"class": "angle"});
-        t.transform("r" + a + ",0,0 t1400,0");
+        t.transform("r" + (a+0.5) + ",0,0 t1400,0");
         g.add( t );
     }
     main.add( g );

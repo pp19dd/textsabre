@@ -269,7 +269,7 @@ button#copy, button#copy_all, button#clear_all, button#save, button#load, #image
     pointer-events: auto;
     grid-column: 1 / span 4;
     resize: vertical;
-    height: 100px;
+    height: 50vh;
     background-color: #999;
     grid-column: 1 / -1;
 }
@@ -280,16 +280,21 @@ button { cursor: pointer }
 #new { pointer-events: auto }
 .byte-row { display: flex; justify-content: space-between; }
 #arduino-code { grid-column: span 1 }
-#copy_all { grid-column: span 3 }
+#copy_all { grid-column: span 2 }
 
 #arduino-code { color: #00979D; }
-#copy, #copy_all, #output { border: 3px solid #00979D; background-color: black; color: #00979D; }
-#output { outline: none }
+#copy, #copy_all, #output, #expand {
+    border: 3px solid #00979D; background-color: black; color: #00979D;
+}
+#expand { pointer-events: auto }
+
+#output { outline: none; }
 #output::selection { background-color: #008CBA; color: black }
 button, select {
     background-color: var(--field-background);
     border-radius: 8px;
 }
+.collapsed { display: none }
 
 /*
 Source - https://stackoverflow.com/a
