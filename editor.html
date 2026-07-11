@@ -1,7 +1,20 @@
+<!--
+// ---------------------------------------------------------------------------
+//   mmmmmmm mmmmmm m    mmmmmmmm         mmmm    mm   mmmmm  mmmmm  mmmmmm
+//      #    #       #  #    #           #"   "   ##   #    # #   "# #
+//      #    #mmmmm   ##     #           "#mmm   #  #  #mmmm" #mmmm" #mmmmm
+//      #    #       m""m    #               "#  #mm#  #    # #   "m #
+//      #    #mmmmm m"  "m   #           "mmm#" #    # #mmmm" #    " #mmmmm
+// ---------------------------------------------------------------------------
+//
+//                   https://github.com/pp19dd/textsabre
+//
+// ---------------------------------------------------------------------------
+-->
 <!doctype html>
 <html>
 <head>
-    <title>textsabre editor</title>
+    <title>textsabre: radial pixel editor for POV displays</title>
     <meta charset="utf-8" />
     <meta name="robots" content="noindex" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />        
@@ -41,6 +54,7 @@
             <button id="copy_all">&#10697; copy all</button>
             <button id="expand" title="Show/Hide Arduino Code">&#9660;</button>
             <textarea readonly id="output" class="collapsed"></textarea>
+            <div id="fps_warning" class="hidden">Slow rotation speed. Check your browser's hardware acceleration settings. <span id='close_fps_warning'>[X]</span></div>
         </div>
         <svg id="svg" class="noselect"></svg>
         <div class="toolbar">

@@ -35,8 +35,10 @@
 --field-background: ghostwhite;
 }
 
-body, html { margin: 0; padding: 0; width: 100%; height: 100% }
+body, html { margin: 0; padding: 0; width: 100%; height: 100%; }
 body {
+    overflow-y: hidden;
+    overflow-x: hidden;
     background-color: var(--background);
     color: silver;
     font-size: 14px;
@@ -64,6 +66,7 @@ g.pixel.painted.color9 path.pixel-vis { fill: var(--color9); }
 g.pixel.painted.color0 path.pixel-vis { fill: var(--color0); }
 
 text.angle { font-size: 36px; fill: black }
+text.angle-zero { font-size: 36px; fill: gray; font-weight: bold }
 
 /* toolbar */
 .toolbar {
@@ -85,7 +88,7 @@ text.angle { font-size: 36px; fill: black }
     align-items: center;
     gap: 8px;
     color: rgba(255,255,255,0.75);
-    font-size: 1.2rem;
+    font-size: 1.1rem;
 }
 
 /* keycaps */
@@ -230,7 +233,7 @@ kbd.key.selected {
     border-radius: 10px;
 
     color: rgba(255,255,255,0.92);
-    font-size: 1.4rem;
+    font-size: 1.1rem;
     line-height: 1.25;
 
     pointer-events: none; /* so it won’t block drawing */
@@ -446,3 +449,18 @@ a { color: silver }
 #write::placeholder {
     color: rgba(255,255,255,0.35);
 }
+
+#svg {
+    width: 100%; 
+    height: 100%;
+    transition: transform 0.35s ease-in-out; 
+}
+    
+.slide-out-left { transform: translateX(-100vw); }
+.slide-out-right { transform: translateX(100vw); }
+.slide-center { transform: translateX(0); }
+.no-transition { transition: none !important; }
+
+.hidden { display: none }
+#fps_warning { color: crimson; grid-column: -1/1; }
+#close_fps_warning { pointer-events: auto; cursor: pointer }

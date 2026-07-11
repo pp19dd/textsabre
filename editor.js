@@ -32,6 +32,11 @@ const led_columns   = 144;
 let pixels = new Array(led_rows * led_columns).fill(-1);
 let pixel_nodes = new Array(led_rows * led_columns);
 
+const default_text = "TEXTSABRE";
+
+// Toggle this to false to disable image transition animations
+const enable_image_transitions = true;
+
 function normalized_c(c) {
 	return( (c % led_columns + led_columns) % led_columns );
 }
@@ -439,6 +444,18 @@ function action_redo() {
     update_undo_redo_buttons();
 }
 
+// Helper function to encapsulate the data loading logic that was originally at the bottom of switch_image_slot
+function update_image_data(next_slot) {
+    active_image_index = next_slot;
+    document.querySelector("#image_index").value = active_image_index;
+    
+    pixels = load_pixels_from_localstorage(active_image_index);
+    load_pixel_array(pixels);
+    update_output_code();
+    update_image_index_markers();
+    update_undo_redo_buttons();
+}
+
 function switch_image_slot(next_image_index, previous_image_index) {
     commit_undoable_pixel_edit();
 
@@ -462,15 +479,38 @@ function switch_image_slot(next_image_index, previous_image_index) {
     // Save the image we are leaving.
     save_pixels_to_localstorage(previous_slot, pixels);
 
-    active_image_index = next_slot;
-    document.querySelector("#image_index").value = active_image_index;
+    // --- NEW ANIMATION LOGIC ---
+    if (enable_image_transitions) {
+        const svg_node = document.querySelector("#svg");
+        const is_moving_right = parseInt(next_slot, 10) > parseInt(previous_slot, 10);
 
-    
-    pixels = load_pixels_from_localstorage(active_image_index);
-    load_pixel_array(pixels);
-    update_output_code();
-    update_image_index_markers();
-    update_undo_redo_buttons();
+        // 1. Slide out
+        svg_node.classList.remove("slide-center", "no-transition");
+        svg_node.classList.add(is_moving_right ? "slide-out-left" : "slide-out-right");
+
+        // 2. Wait for slide out to finish
+        setTimeout(() => {
+            // Update pixels while off-screen
+            update_image_data(next_slot);
+
+            // 3. Teleport to the opposite side without animation
+            svg_node.classList.add("no-transition");
+            svg_node.classList.remove("slide-out-left", "slide-out-right");
+            svg_node.classList.add(is_moving_right ? "slide-out-right" : "slide-out-left");
+
+            // 4. Force reflow, then slide back into center
+            requestAnimationFrame(() => {
+                requestAnimationFrame(() => {
+                    svg_node.classList.remove("no-transition", "slide-out-left", "slide-out-right");
+                    svg_node.classList.add("slide-center");
+                });
+            });
+        }, 350); // Matches the 0.35s CSS transition
+
+    } else {
+        // Fallback to instant change if disabled
+        update_image_data(next_slot);
+    }
 }
 
 function load_current_image_from_localstorage() {
@@ -884,11 +924,11 @@ function reset_text_input_to_default() {
     const input = document.querySelector("#write");
     if( !input ) return;
 
-    current_text_string = "TEXTSABRE";
-    input.value = "TEXTSABRE";
+    current_text_string = default_text;
+    input.value = default_text;
 
     try {
-        localStorage.setItem(storage_text_input_key, "TEXTSABRE");
+        localStorage.setItem(storage_text_input_key, default_text);
     } catch(err) {
         console.warn("Could not reset text input in localStorage", err);
     }
@@ -1093,6 +1133,13 @@ document.addEventListener("DOMContentLoaded", (e) => {
     document.querySelector("#write").addEventListener("keydown", write_handler);
     document.querySelector("#write").addEventListener("keyup", write_handler);
     document.querySelector("#write").addEventListener("change", write_handler);
+
+    // start benchmarking fps performance
+    fps.active = true;
+
+    document.querySelector("#close_fps_warning").addEventListener("click", () => {
+        document.querySelector("#fps_warning").classList.add("hidden");
+    });
 });
 
 function button_click_events() {
@@ -1372,6 +1419,12 @@ for( let a = 0 + angle_offset; a < 360 + angle_offset; a += 360/steps ) {
     } else {
         const t = paper.text(0,0, count_column.toString()).attr({"class": "angle"});
         t.transform("r" + (a+0.5) + ",0,0 t1400,0");
+        if( count_column === 0 ) {
+            t.attr({
+                "class": "angle angle-zero",
+                "text": "0 →"
+            });
+        }
         g.add( t );
     }
     main.add( g );
@@ -2654,6 +2707,7 @@ function action_new() {
     load_pixel_array(pixels);
     update_output_code();
     autosave_current_image();
+    reset_editor_tools_to_defaults();
 }
 
 function action_clear_all() {
@@ -2807,18 +2861,81 @@ document.addEventListener("keyup", function(k) {
     if( k.key === "ArrowLeft" || k.key === "a" ) setRotationKeyLeft(false);
     if( k.key === "ArrowRight" || k.key === "d" ) setRotationKeyRight(false);
 });
+let fps = {
+    active: false,
+
+    warning_level: 0.33, // rotating FPS below 33% of stationary FPS
+    warning_count: 0,
+    warning_total: 3,
+
+    current: 0,
+    stationary: 0,
+    rotating: 0,
+
+    stationary_samples: 0
+};
 
 function do_rotation() {
-    if( is_left ) rotation -= 3;
-    if( is_right ) rotation += 3;
+    if (is_left)  rotation -= 3;
+    if (is_right) rotation += 3;
 
-    if( prev_rotation !== rotation ) {
+    if (prev_rotation !== rotation) {
         main.transform("r" + rotation + ",0,0");
         save_rotation_to_localstorage();
     }
-    requestAnimationFrame(do_rotation);
+
     prev_rotation = rotation;
+
+    if (fps.active) {
+        fps.current++;
+    }
+
+    requestAnimationFrame(do_rotation);
 }
+
+setInterval(() => {
+    if (!fps.active) return;
+
+    const current = fps.current;
+    fps.current = 0;
+
+    if (is_left || is_right) {
+        fps.rotating = current;
+
+        // Do not test until we have a usable stationary baseline.
+        if (fps.stationary_samples < 3 || fps.stationary <= 0) {
+            fps.warning_count = 0;
+            return;
+        }
+
+        if (fps.rotating < fps.stationary * fps.warning_level) {
+            fps.warning_count++;
+
+            if (fps.warning_count >= fps.warning_total) {
+                fps.active = false;
+                document
+                    .querySelector("#fps_warning")
+                    .classList.remove("hidden");
+            }
+        } else {
+            // Require consecutive bad samples.
+            fps.warning_count = 0;
+        }
+
+    } else {
+        // Smooth out occasional unusually high or low stationary samples.
+        if (fps.stationary_samples === 0) {
+            fps.stationary = current;
+        } else {
+            fps.stationary =
+                (fps.stationary * 0.75) +
+                (current * 0.25);
+        }
+
+        fps.stationary_samples++;
+        fps.warning_count = 0;
+    }
+}, 200);
 
 requestAnimationFrame(do_rotation);
 
