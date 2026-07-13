@@ -359,6 +359,126 @@ function action_paste_pixels(clipboard_text) {
     ) );
 }
 
+function valid_clipboard_pixel_array(candidate) {
+    return(
+        valid_pixel_array(candidate) &&
+        candidate.every((pixel) => Number.isInteger(pixel) && pixel >= -1 && pixel <= 9)
+    );
+}
+
+function serialize_pixel_clipboard(pixel_array) {
+    return( JSON.stringify({
+        app: pixel_clipboard_app,
+        type: pixel_clipboard_type,
+        version: pixel_clipboard_version,
+        led_rows: led_rows,
+        led_columns: led_columns,
+        pixels: pixel_array
+    }) );
+}
+
+function parse_pixel_clipboard(text) {
+    if( typeof text !== "string" || text.trim() === "" ) return( null );
+
+    try {
+        const payload = JSON.parse(text);
+        if(
+            payload === null ||
+            payload.app !== pixel_clipboard_app ||
+            payload.type !== pixel_clipboard_type ||
+            payload.version !== pixel_clipboard_version ||
+            payload.led_rows !== led_rows ||
+            payload.led_columns !== led_columns ||
+            !valid_clipboard_pixel_array(payload.pixels)
+        ) {
+            return( null );
+        }
+
+        return( payload.pixels.slice() );
+    } catch(err) {
+        return( null );
+    }
+}
+
+function is_text_clipboard_target(target) {
+    if( !target ) return( false );
+    const tag = target.tagName ? target.tagName.toLowerCase() : "";
+    return( tag === "input" || tag === "textarea" || target.isContentEditable );
+}
+
+function remember_pixel_clipboard(pixel_array) {
+    pixel_clipboard_fallback = pixel_array.slice();
+}
+
+function action_copy_pixels(clipboard_data) {
+    const snapshot = pixels.slice();
+    const payload = serialize_pixel_clipboard(snapshot);
+    remember_pixel_clipboard(snapshot);
+
+    if( clipboard_data ) {
+        clipboard_data.setData("text/plain", payload);
+        return( Promise.resolve(true) );
+    }
+
+    if( navigator.clipboard && typeof navigator.clipboard.writeText === "function" ) {
+        return( navigator.clipboard.writeText(payload)
+            .then(() => true)
+            .catch(() => {
+                copy_output(payload);
+                return( true );
+            })
+        );
+    }
+
+    copy_output(payload);
+    return( Promise.resolve(true) );
+}
+
+function apply_pasted_pixels(next_pixels) {
+    if( !valid_clipboard_pixel_array(next_pixels) ) return( false );
+
+    finish_tool_drag();
+    if( same_pixel_array(pixels, next_pixels) ) return( false );
+
+    push_undo_snapshot(pixels);
+    pixels = next_pixels.slice();
+    load_pixel_array(pixels);
+    clear_tool_preview();
+    update_output_code();
+    autosave_current_image();
+    return( true );
+}
+
+function action_paste_pixels(clipboard_text) {
+    if( typeof clipboard_text === "string" ) {
+        const parsed = parse_pixel_clipboard(clipboard_text);
+        if( parsed ) remember_pixel_clipboard(parsed);
+        return( Promise.resolve(parsed ? apply_pasted_pixels(parsed) : false) );
+    }
+
+    if( navigator.clipboard && typeof navigator.clipboard.readText === "function" ) {
+        return( navigator.clipboard.readText()
+            .then((text) => {
+                const parsed = parse_pixel_clipboard(text);
+                if( parsed ) remember_pixel_clipboard(parsed);
+                return( parsed ? apply_pasted_pixels(parsed) : false );
+            })
+            .catch(() => {
+                return( pixel_clipboard_fallback
+                    ? apply_pasted_pixels(pixel_clipboard_fallback)
+                    : false
+                );
+            })
+        );
+    }
+
+    return( Promise.resolve(
+        pixel_clipboard_fallback
+            ? apply_pasted_pixels(pixel_clipboard_fallback)
+            : false
+    ) );
+}
+
 function pixel_array_has_content(pixel_array) {
     if( !valid_pixel_array(pixel_array) ) return( false );
     return( pixel_array.some((pixel) => pixel !== -1) );
@@ -512,6 +632,7 @@ function update_undo_redo_buttons() {
         historyButton.setSideDisabled("left", !can_undo);
         historyButton.setSideDisabled("right", !can_redo);
     }
+}
 }
 
 function restore_pixels_from_history(snapshot) {
