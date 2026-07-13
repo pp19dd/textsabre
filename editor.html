@@ -21,6 +21,7 @@
     <link rel="stylesheet" type="text/css" href="editor.css" />
     <script src="snap.svg-min.js"></script>
     <script src="cycle.js"></script>
+    <script src="split.js"></script>
     <script src="font-spleen-5x8.js"></script>
     <script src="font-spleen-6x12.js"></script>
     <script src="font-spleen-8x16.js"></script>
@@ -58,11 +59,18 @@
         </div>
         <svg id="svg" class="noselect"></svg>
         <div class="toolbar">
-            <div class="hint hint-rotate">
-                <span>rotate</span>
-                <kbd class="key kbd pressable active key-a">A</kbd>
-                <kbd class="key kbd pressable active key-d">D</kbd>
-            </div>
+            <split-button
+                id="rotate-btn"
+                class="hint-rotate"
+                split="forward"
+                left-label="A"
+                right-label="D"
+                left-value="left"
+                right-value="right"
+                left-title="Rotate counter-clockwise (A or Left Arrow)"
+                right-title="Rotate clockwise (D or Right Arrow)"
+                label="rotate">
+            </split-button>
 
             <div class="hint hint-color">
                 <span>color</span>
@@ -83,11 +91,33 @@
                 <kbd class="key kbd pressable active key-v selected">V</kbd>
             </div>
 
-            <div class="hint hint-history">
-                <span>history</span>
-                <kbd class="key kbd pressable key-undo disabled" title="Undo (Ctrl+Z)" aria-disabled="true"><span class="ctrl">ctrl</span>Z</kbd>
-                <kbd class="key kbd pressable key-redo disabled" title="Redo (Ctrl+Y or Ctrl+Shift+Z)" aria-disabled="true"><span class="ctrl">ctrl</span>Y</kbd>
-            </div>
+            <split-button
+                id="history-btn"
+                class="hint-history"
+                split="vertical"
+                left-value="undo"
+                right-value="redo"
+                left-title="Undo (Ctrl+Z)"
+                right-title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
+                left-disabled
+                right-disabled
+                label="history">
+                <span slot="left"><span class="ctrl">ctrl</span>Z</span>
+                <span slot="right"><span class="ctrl">ctrl</span>Y</span>
+            </split-button>
+
+            <split-button
+                id="clipboard-btn"
+                class="hint-clipboard"
+                split="vertical"
+                left-value="copy"
+                right-value="paste"
+                left-title="Copy the current pixel image (Ctrl+C)"
+                right-title="Paste a TextSabre pixel image (Ctrl+V)"
+                label="copy / paste">
+                <span slot="left"><span class="ctrl">ctrl</span>C</span>
+                <span slot="right"><span class="ctrl">ctrl</span>V</span>
+            </split-button>
 
             <div class="hint hint-tools">
                 <span class="ctrl">shift:<br/>erase</span>
