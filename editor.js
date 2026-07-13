@@ -122,6 +122,12 @@ const storage_text_mode_key = "sabre-text-mode";
 const storage_text_font_key = "sabre-text-font";
 const storage_text_input_key = "sabre-text-input";
 const storage_expand_key = "sabre-expand";
+const pixel_clipboard_app = "textsabre";
+const pixel_clipboard_type = "pixel-image";
+const pixel_clipboard_version = 1;
+
+// Retains copy/paste within this page if browser clipboard permissions are unavailable.
+let pixel_clipboard_fallback = null;
 
 // Undo stores full image snapshots, one entry per completed paint/erase gesture.
 // Bump this up/down as desired; memory use is roughly rows * columns * steps integers.
@@ -231,6 +237,126 @@ function valid_pixel_array(candidate) {
         Array.isArray(candidate) &&
         candidate.length === led_rows * led_columns
     );
+}
+
+function valid_clipboard_pixel_array(candidate) {
+    return(
+        valid_pixel_array(candidate) &&
+        candidate.every((pixel) => Number.isInteger(pixel) && pixel >= -1 && pixel <= 9)
+    );
+}
+
+function serialize_pixel_clipboard(pixel_array) {
+    return( JSON.stringify({
+        app: pixel_clipboard_app,
+        type: pixel_clipboard_type,
+        version: pixel_clipboard_version,
+        led_rows: led_rows,
+        led_columns: led_columns,
+        pixels: pixel_array
+    }) );
+}
+
+function parse_pixel_clipboard(text) {
+    if( typeof text !== "string" || text.trim() === "" ) return( null );
+
+    try {
+        const payload = JSON.parse(text);
+        if(
+            payload === null ||
+            payload.app !== pixel_clipboard_app ||
+            payload.type !== pixel_clipboard_type ||
+            payload.version !== pixel_clipboard_version ||
+            payload.led_rows !== led_rows ||
+            payload.led_columns !== led_columns ||
+            !valid_clipboard_pixel_array(payload.pixels)
+        ) {
+            return( null );
+        }
+
+        return( payload.pixels.slice() );
+    } catch(err) {
+        return( null );
+    }
+}
+
+function is_text_clipboard_target(target) {
+    if( !target ) return( false );
+    const tag = target.tagName ? target.tagName.toLowerCase() : "";
+    return( tag === "input" || tag === "textarea" || target.isContentEditable );
+}
+
+function remember_pixel_clipboard(pixel_array) {
+    pixel_clipboard_fallback = pixel_array.slice();
+}
+
+function action_copy_pixels(clipboard_data) {
+    const snapshot = pixels.slice();
+    const payload = serialize_pixel_clipboard(snapshot);
+    remember_pixel_clipboard(snapshot);
+
+    if( clipboard_data ) {
+        clipboard_data.setData("text/plain", payload);
+        return( Promise.resolve(true) );
+    }
+
+    if( navigator.clipboard && typeof navigator.clipboard.writeText === "function" ) {
+        return( navigator.clipboard.writeText(payload)
+            .then(() => true)
+            .catch(() => {
+                copy_output(payload);
+                return( true );
+            })
+        );
+    }
+
+    copy_output(payload);
+    return( Promise.resolve(true) );
+}
+
+function apply_pasted_pixels(next_pixels) {
+    if( !valid_clipboard_pixel_array(next_pixels) ) return( false );
+
+    finish_tool_drag();
+    if( same_pixel_array(pixels, next_pixels) ) return( false );
+
+    push_undo_snapshot(pixels);
+    pixels = next_pixels.slice();
+    load_pixel_array(pixels);
+    clear_tool_preview();
+    update_output_code();
+    autosave_current_image();
+    return( true );
+}
+
+function action_paste_pixels(clipboard_text) {
+    if( typeof clipboard_text === "string" ) {
+        const parsed = parse_pixel_clipboard(clipboard_text);
+        if( parsed ) remember_pixel_clipboard(parsed);
+        return( Promise.resolve(parsed ? apply_pasted_pixels(parsed) : false) );
+    }
+
+    if( navigator.clipboard && typeof navigator.clipboard.readText === "function" ) {
+        return( navigator.clipboard.readText()
+            .then((text) => {
+                const parsed = parse_pixel_clipboard(text);
+                if( parsed ) remember_pixel_clipboard(parsed);
+                return( parsed ? apply_pasted_pixels(parsed) : false );
+            })
+            .catch(() => {
+                return( pixel_clipboard_fallback
+                    ? apply_pasted_pixels(pixel_clipboard_fallback)
+                    : false
+                );
+            })
+        );
+    }
+
+    return( Promise.resolve(
+        pixel_clipboard_fallback
+            ? apply_pasted_pixels(pixel_clipboard_fallback)
+            : false
+    ) );
 }
 
 function pixel_array_has_content(pixel_array) {
@@ -376,29 +502,16 @@ function commit_undoable_pixel_edit() {
     push_undo_snapshot(before);
 }
 
-function set_history_control_state(control, is_available) {
-    if( !control ) return;
-
-    const is_button = control.tagName.toLowerCase() === "button";
-
-    if( is_button ) {
-        control.disabled = !is_available;
-        control.hidden = false;
-    }
-
-    control.classList.toggle("active", is_available);
-    control.classList.toggle("disabled", !is_available);
-    control.classList.toggle("selected", false);
-    control.setAttribute("aria-disabled", is_available ? "false" : "true");
-}
-
 function update_undo_redo_buttons() {
     const h = get_image_history(active_image_index);
     const can_undo = h.undo_stack.length > 0;
     const can_redo = h.redo_stack.length > 0;
+    const historyButton = document.getElementById("history-btn");
 
-    set_history_control_state(document.querySelector(".hint-history .key-undo"), can_undo);
-    set_history_control_state(document.querySelector(".hint-history .key-redo"), can_redo);
+    if( historyButton ) {
+        historyButton.setSideDisabled("left", !can_undo);
+        historyButton.setSideDisabled("right", !can_redo);
+    }
 }
 
 function restore_pixels_from_history(snapshot) {
@@ -1019,15 +1132,21 @@ document.addEventListener("DOMContentLoaded", (e) => {
         action_clear_all();
     });
 
-    document.querySelector(".hint-history .key-undo").addEventListener("click", (e) => {
-        if( e.currentTarget.getAttribute("aria-disabled") === "true" ) return;
-        action_undo();
-    });
+    const historyButton = document.getElementById("history-btn");
+    if( historyButton ) {
+        historyButton.addEventListener("split-action", (e) => {
+            if( e.detail.side === "left" ) action_undo();
+            if( e.detail.side === "right" ) action_redo();
+        });
+    }
 
-    document.querySelector(".hint-history .key-redo").addEventListener("click", (e) => {
-        if( e.currentTarget.getAttribute("aria-disabled") === "true" ) return;
-        action_redo();
-    });
+    const clipboardButton = document.getElementById("clipboard-btn");
+    if( clipboardButton ) {
+        clipboardButton.addEventListener("split-action", (e) => {
+            if( e.detail.side === "left" ) action_copy_pixels();
+            if( e.detail.side === "right" ) action_paste_pixels();
+        });
+    }
 
     const image_select = document.querySelector("#image_index");
     image_select.dataset.previousValue = image_select.value;
@@ -1154,23 +1273,22 @@ function button_click_events() {
         });
     });
 
-    document.querySelector(".hint-rotate .key-a").addEventListener("mousedown", (e) => {
-        setRotationKeyLeft(true);
-    });
-    document.querySelector(".hint-rotate .key-a").addEventListener("mouseup", (e) => {
-        setRotationKeyLeft(false);
-    });
+    const rotateButton = document.getElementById("rotate-btn");
+    if( rotateButton ) {
+        rotateButton.addEventListener("split-press", (e) => {
+            if( e.detail.side === "left" ) setRotationKeyLeft(true);
+            if( e.detail.side === "right" ) setRotationKeyRight(true);
+        });
+        rotateButton.addEventListener("split-release", (e) => {
+            if( e.detail.side === "left" ) setRotationKeyLeft(false);
+            if( e.detail.side === "right" ) setRotationKeyRight(false);
+        });
+    }
 
-    document.querySelector(".hint-rotate .key-d").addEventListener("mousedown", (e) => {
-        setRotationKeyRight(true);
-    });
-    document.querySelector(".hint-rotate .key-d").addEventListener("mouseup", (e) => {
-        setRotationKeyRight(false);
-    });
-
-    document.querySelector(".hint-actions .key-v").addEventListener("mouseup", (e) => {
-        toggleViewKey();
-    });
+    const viewButton = document.getElementById("view-btn");
+    if( viewButton ) {
+        viewButton.addEventListener("split-action", () => toggleViewKey());
+    }
 
     const pixelButton = document.getElementById("pixel-btn");
     if( pixelButton ) {
@@ -2751,8 +2869,11 @@ function reset_editor_tools_to_defaults() {
     reset_text_input_to_default();
     save_editor_state_to_localstorage();
 
-    document.querySelector(".hint-rotate .key-a").classList.remove("selected");
-    document.querySelector(".hint-rotate .key-d").classList.remove("selected");
+    const rotateButton = document.getElementById("rotate-btn");
+    if( rotateButton ) {
+        rotateButton.setPressed("left", false);
+        rotateButton.setPressed("right", false);
+    }
 }
 
 // #endregion
@@ -2861,6 +2982,32 @@ document.addEventListener("keyup", function(k) {
     if( k.key === "ArrowLeft" || k.key === "a" ) setRotationKeyLeft(false);
     if( k.key === "ArrowRight" || k.key === "d" ) setRotationKeyRight(false);
 });
+
+document.addEventListener("copy", function(e) {
+    if(
+        is_text_clipboard_target(e.target) ||
+        is_text_clipboard_target(document.activeElement)
+    ) return;
+
+    e.preventDefault();
+    action_copy_pixels(e.clipboardData);
+});
+
+document.addEventListener("paste", function(e) {
+    if(
+        is_text_clipboard_target(e.target) ||
+        is_text_clipboard_target(document.activeElement)
+    ) return;
+
+    const text = e.clipboardData ? e.clipboardData.getData("text/plain") : "";
+    const parsed = parse_pixel_clipboard(text);
+    if( !parsed ) return;
+
+    e.preventDefault();
+    remember_pixel_clipboard(parsed);
+    apply_pasted_pixels(parsed);
+});
+
 let fps = {
     active: false,
 
@@ -2943,12 +3090,12 @@ function applyViewState() {
     switch( view_state ) {
         case 0:
             paper.attr({ viewBox: "-1500 -1500 3000 1500"});
-            document.querySelector(".hint-actions .key-v").classList.add("selected");
+            document.getElementById("view-btn")?.toggleAttribute("selected", true);
         break;
 
         case 1:
             paper.attr({ viewBox: "-1500 -1500 3000 3000"});
-            document.querySelector(".hint-actions .key-v").classList.remove("selected");
+            document.getElementById("view-btn")?.toggleAttribute("selected", false);
         break;
     }
 }
@@ -2963,20 +3110,14 @@ function toggleViewKey() {
 
 function setRotationKeyLeft(value) {
     is_left = value;
-    if( value === false ) {
-        document.querySelector(".hint-rotate .key-a").classList.remove("selected");
-    } else {
-        document.querySelector(".hint-rotate .key-a").classList.add("selected");
-    }
+    const rotateButton = document.getElementById("rotate-btn");
+    if( rotateButton ) rotateButton.setPressed("left", value);
 }
 
 function setRotationKeyRight(value) {
     is_right = value;
-    if( value === false ) {
-        document.querySelector(".hint-rotate .key-d").classList.remove("selected");
-    } else {
-        document.querySelector(".hint-rotate .key-d").classList.add("selected");
-    }
+    const rotateButton = document.getElementById("rotate-btn");
+    if( rotateButton ) rotateButton.setPressed("right", value);
 }
 
 function clearKeys() {

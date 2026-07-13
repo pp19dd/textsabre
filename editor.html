@@ -21,6 +21,7 @@
     <link rel="stylesheet" type="text/css" href="editor.css" />
     <script src="snap.svg-min.js"></script>
     <script src="cycle.js"></script>
+    <script src="split.js"></script>
     <script src="font-spleen-5x8.js"></script>
     <script src="font-spleen-6x12.js"></script>
     <script src="font-spleen-8x16.js"></script>
@@ -58,101 +59,118 @@
         </div>
         <svg id="svg" class="noselect"></svg>
         <div class="toolbar">
-            <div class="hint hint-rotate">
-                <span>rotate</span>
-                <kbd class="key kbd pressable active key-a">A</kbd>
-                <kbd class="key kbd pressable active key-d">D</kbd>
+            <div class="toolbar-row toolbar-row-primary">
+                <div class="toolbar-group group-rotate">
+                    <split-button
+                        id="rotate-btn"
+                        class="hint-rotate"
+                        split="forward"
+                        left-label="A"
+                        right-label="D"
+                        left-value="left"
+                        right-value="right"
+                        left-title="Rotate counter-clockwise (A or Left Arrow)"
+                        right-title="Rotate clockwise (D or Right Arrow)"
+                        label="rotate">
+                    </split-button>
+                    <split-button
+                        id="view-btn"
+                        class="hint-view"
+                        split="none"
+                        left-label="V"
+                        left-value="view"
+                        left-title="Toggle view (V)"
+                        label="view"
+                        selected>
+                    </split-button>
+                </div>
+
+                <div class="hint hint-color toolbar-group group-color">
+                    <span class="group-label">color</span>
+                    <div class="color-keys">
+                        <kbd class="key kbd pressable active color0">1</kbd>
+                        <kbd class="key kbd pressable active color1">2</kbd>
+                        <kbd class="key kbd pressable active color2">3</kbd>
+                        <kbd class="key kbd pressable active color3">4</kbd>
+                        <kbd class="key kbd pressable active color4">5</kbd>
+                        <kbd class="key kbd pressable active color5">6</kbd>
+                        <kbd class="key kbd pressable active color6">7</kbd>
+                        <kbd class="key kbd pressable active color7" style="display:none">8</kbd>
+                        <kbd class="key kbd pressable active color8" style="display:none">9</kbd>
+                        <kbd class="key kbd pressable active color9" style="display:none">0</kbd>
+                    </div>
+                </div>
+
+                <div class="toolbar-group group-actions">
+                    <split-button
+                        id="history-btn"
+                        class="hint-history"
+                        split="vertical"
+                        left-value="undo"
+                        right-value="redo"
+                        left-title="Undo (Ctrl+Z)"
+                        right-title="Redo (Ctrl+Y or Ctrl+Shift+Z)"
+                        left-disabled
+                        right-disabled
+                        label="history">
+                        <span slot="left" class="shortcut"><span class="ctrl">Ctrl</span><span>Z</span></span>
+                        <span slot="right" class="shortcut"><span class="ctrl">Ctrl</span><span>Y</span></span>
+                    </split-button>
+
+                    <split-button
+                        id="clipboard-btn"
+                        class="hint-clipboard"
+                        split="vertical"
+                        left-value="copy"
+                        right-value="paste"
+                        left-title="Copy the current pixel image (Ctrl+C)"
+                        right-title="Paste a TextSabre pixel image (Ctrl+V)"
+                        label="copy / paste">
+                        <span slot="left" class="shortcut"><span class="ctrl">Ctrl</span><span>C</span></span>
+                        <span slot="right" class="shortcut"><span class="ctrl">Ctrl</span><span>V</span></span>
+                    </split-button>
+                </div>
             </div>
 
-            <div class="hint hint-color">
-                <span>color</span>
-                <kbd class="key kbd pressable active color0">1</kbd>
-                <kbd class="key kbd pressable active color1">2</kbd>
-                <kbd class="key kbd pressable active color2">3</kbd>
-                <kbd class="key kbd pressable active color3">4</kbd>
-                <kbd class="key kbd pressable active color4">5</kbd>
-                <kbd class="key kbd pressable active color5">6</kbd>
-                <kbd class="key kbd pressable active color6">7</kbd>
-                <kbd class="key kbd pressable active color7" style="display:none">8</kbd>
-                <kbd class="key kbd pressable active color8" style="display:none">9</kbd>
-                <kbd class="key kbd pressable active color9" style="display:none">0</kbd>
-            </div>
+            <div class="toolbar-row toolbar-row-tools">
+                <div class="hint hint-tools toolbar-group group-tools">
+                    <span class="group-label">tool</span>
+                    <cycle-button 
+                        id="pixel-btn"
+                        class="pressable active tool-draw"
+                        config='[{"id":"weight","side":"right","count":3,"layout":"3x1","order":"column","title":"Stroke Width: Light"}]'>
+                        <span class="hotkey">P</span>ixel
+                    </cycle-button>
+                    
+                    <cycle-button
+                        id="line-btn"
+                        class="pressable active tool-line"
+                        title="Draw line: press, drag, release"
+                        config='[]'>
+                        <span class="hotkey">L</span>ine
+                    </cycle-button>
+                    <cycle-button 
+                        id="circle-btn"
+                        class="pressable active tool-circle"
+                        config='[{"id":"weight","side":"right","count":2,"layout":"2x1","order":"column","title":"Outline / Filled"}]'>
+                        <span class="hotkey">C</span>ircle
+                    </cycle-button>
 
-            <div class="hint hint-actions">
-                <span>view</span>
-                <kbd class="key kbd pressable active key-v selected">V</kbd>
-            </div>
+                    <cycle-button 
+                        id="text-btn"
+                        class="pressable active tool-text"
+                        config='[{"id":"orientation","side":"right","count":4,"layout":"2x2","order":"column","title":"Orientation"},{"id":"font-size","side":"right","count":4,"layout":"2x2","order":"column","title":"Font Size"}]'>
+                        <span class="hotkey">T</span>ext
+                    </cycle-button>
 
-            <div class="hint hint-history">
-                <span>history</span>
-                <kbd class="key kbd pressable key-undo disabled" title="Undo (Ctrl+Z)" aria-disabled="true"><span class="ctrl">ctrl</span>Z</kbd>
-                <kbd class="key kbd pressable key-redo disabled" title="Redo (Ctrl+Y or Ctrl+Shift+Z)" aria-disabled="true"><span class="ctrl">ctrl</span>Y</kbd>
-            </div>
+                    <div class="hint-write">
+                        <input type="text" id="write" autocomplete="off" spellcheck="false" value="TEXTSABRE" />
+                    </div>
+                </div>
 
-            <div class="hint hint-tools">
-                <span class="ctrl">shift:<br/>erase</span>
-                <span>tool</span>
-                <cycle-button 
-                    id="pixel-btn"
-                    class="pressable active tool-draw"
-                    config='[{
-                        "id": "weight", 
-                        "side": "right", 
-                        "count": 3, 
-                        "layout": "3x1", 
-                        "order": "column", 
-                        "title": "Stroke Width: Light"
-                    }]'>
-                    <span class="hotkey">P</span>ixel
-                </cycle-button>
-                
-                <cycle-button
-                    id="line-btn"
-                    class="pressable active tool-line"
-                    title="Draw line: press, drag, release"
-                    config='[]'>
-                    <span class="hotkey">L</span>ine
-                </cycle-button>
-                <cycle-button 
-                    id="circle-btn"
-                    class="pressable active tool-circle"
-                    config='[{
-                        "id": "weight", 
-                        "side": "right", 
-                        "count": 2, 
-                        "layout": "2x1", 
-                        "order": "column", 
-                        "title": "Outline / Filled"
-                    }]'>
-                    <span class="hotkey">C</span>ircle
-                </cycle-button>
-
-                <cycle-button 
-                    id="text-btn"
-                    class="pressable active tool-text"
-                    config='[
-                    {
-                        "id": "orientation", 
-                        "side": "right", 
-                        "count": 4, 
-                        "layout": "2x2", 
-                        "order": "column", 
-                        "title": "Orientation"
-                    },
-                    {
-                        "id": "font-size", 
-                        "side": "right", 
-                        "count": 4, 
-                        "layout": "2x2", 
-                        "order": "column", 
-                        "title": "Font Size"
-                    }
-                    ]'>
-                    <span class="hotkey">T</span>ext
-                </cycle-button>
-
-                <div class="hint hint-write">
-                    <input type="text" id="write" autocomplete="off" spellcheck="false" value="TEXTSABRE" />
+                <div class="erase-hint" title="Hold Shift while drawing to erase">
+                    <kbd class="mini-key">Shift</kbd>
+                    <span>hold to erase</span>
                 </div>
             </div>
         </div>

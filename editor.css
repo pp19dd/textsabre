@@ -341,22 +341,23 @@ a { color: silver }
     font-weight: bold;
 }
 
-/* history hotkey buttons */
-.hint-history .pressable.disabled {
-    opacity: 0.35;
-    filter: grayscale(1);
-    cursor: default;
-    pointer-events: none;
-    box-shadow: none;
+/* history split button: wide enough to keep ctrl+letter readable on each side */
+.hint-history,
+.hint-clipboard {
+    --split-width: 6em;
 }
 
-.hint-history .pressable.disabled:hover {
-    transform: none;
+.hint-color {
+    transform: translateY(-10px);
 }
 
-.hint-history .pressable.active:not(.disabled) {
-    opacity: 1;
-    cursor: pointer;
+.hint-actions {
+    transform: translateY(-10px);
+}
+
+.toolbar .hint > span:first-child {
+    line-height: 1;
+    transform: translateY(-1px);
 }
 
 .ctrl {
@@ -464,3 +465,188 @@ a { color: silver }
 .hidden { display: none }
 #fps_warning { color: crimson; grid-column: -1/1; }
 #close_fps_warning { pointer-events: auto; cursor: pointer }
+
+/* -------------------------------------------------------------------------
+   Polished toolbar layout
+   ------------------------------------------------------------------------- */
+.toolbar {
+    flex: 0 0 auto;
+    display: grid;
+    grid-template-rows: auto auto;
+    gap: 10px;
+    align-items: center;
+    justify-items: center;
+    padding: 10px 16px 12px;
+    background: #202020;
+    border-top: 4px solid #080808;
+    border-bottom: 6px solid #080808;
+}
+
+.toolbar-row {
+    width: min(1060px, 100%);
+    display: grid;
+    align-items: center;
+}
+
+.toolbar-row-primary {
+    grid-template-columns: auto minmax(0, 1fr) auto;
+    gap: 22px;
+}
+
+.toolbar-row-tools {
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 16px;
+    padding-top: 9px;
+    border-top: 1px solid rgba(255,255,255,0.10);
+}
+
+.toolbar-group {
+    display: inline-flex;
+    align-items: center;
+    min-width: 0;
+}
+
+.group-rotate {
+    justify-self: start;
+    gap: 10px;
+}
+.group-color {
+    justify-self: center;
+    gap: 10px;
+}
+.group-actions {
+    justify-self: end;
+    gap: 16px;
+}
+.group-tools {
+    justify-self: center;
+    gap: 10px;
+    min-width: 0;
+}
+
+.group-label {
+    color: rgba(255,255,255,0.68);
+    font-size: 0.95rem;
+    white-space: nowrap;
+}
+
+.color-keys {
+    display: inline-flex;
+    gap: 8px;
+    flex-wrap: nowrap;
+}
+
+.single-action {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.hint-history,
+.hint-clipboard {
+    --split-width: 6.5em;
+    flex: 0 0 auto;
+}
+
+.shortcut {
+    display: inline-flex;
+    align-items: baseline;
+    justify-content: center;
+    gap: 2px;
+    white-space: nowrap;
+}
+
+.ctrl {
+    display: inline-block;
+    margin: 0;
+    color: #aaa;
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.62rem;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    line-height: 1;
+    text-transform: uppercase;
+}
+
+.erase-hint {
+    justify-self: end;
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    color: rgba(255,255,255,0.56);
+    font-family: Arial, Helvetica, sans-serif;
+    font-size: 0.78rem;
+    white-space: nowrap;
+}
+
+.mini-key {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    height: 1.65em;
+    padding: 0 0.55em;
+    border: 1px solid rgba(255,255,255,0.16);
+    border-radius: 7px;
+    background: linear-gradient(180deg, rgba(255,255,255,0.10), transparent 45%), #292929;
+    box-shadow: 0 2px 0 rgba(0,0,0,0.4);
+    color: rgba(255,255,255,0.78);
+    font: 600 0.72rem/1 Arial, Helvetica, sans-serif;
+}
+
+.hint-write {
+    display: inline-flex;
+    min-width: 0;
+}
+
+#write {
+    width: clamp(10ch, 15vw, 16ch);
+}
+
+/* prevent toolbar controls from producing their own accidental wrapping */
+.toolbar split-button,
+.toolbar cycle-button,
+.toolbar .kbd,
+.toolbar .hint-write {
+    flex: 0 0 auto;
+}
+
+@media (max-width: 1050px) {
+    .toolbar-row-primary {
+        grid-template-columns: auto 1fr;
+    }
+    .group-color {
+        justify-self: end;
+    }
+    .group-actions {
+        grid-column: 1 / -1;
+        justify-self: center;
+    }
+}
+
+@media (max-width: 760px) {
+    .toolbar {
+        gap: 8px;
+        padding-inline: 10px;
+    }
+    .toolbar-row-primary,
+    .toolbar-row-tools {
+        display: flex;
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .group-rotate,
+    .group-color,
+    .group-actions,
+    .group-tools,
+    .erase-hint {
+        justify-self: auto;
+    }
+    .group-tools {
+        flex-wrap: wrap;
+        justify-content: center;
+    }
+    .erase-hint {
+        width: 100%;
+        justify-content: center;
+    }
+}
