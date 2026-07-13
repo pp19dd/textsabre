@@ -341,22 +341,10 @@ a { color: silver }
     font-weight: bold;
 }
 
-/* history hotkey buttons */
-.hint-history .pressable.disabled {
-    opacity: 0.35;
-    filter: grayscale(1);
-    cursor: default;
-    pointer-events: none;
-    box-shadow: none;
-}
-
-.hint-history .pressable.disabled:hover {
-    transform: none;
-}
-
-.hint-history .pressable.active:not(.disabled) {
-    opacity: 1;
-    cursor: pointer;
+/* history split button: wide enough to keep ctrl+letter readable on each side */
+.hint-history,
+.hint-clipboard {
+    --split-width: 6em;
 }
 
 .ctrl {
