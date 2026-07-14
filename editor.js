@@ -633,7 +633,6 @@ function update_undo_redo_buttons() {
         historyButton.setSideDisabled("right", !can_redo);
     }
 }
-}
 
 function restore_pixels_from_history(snapshot) {
     if( !valid_pixel_array(snapshot) ) return;
